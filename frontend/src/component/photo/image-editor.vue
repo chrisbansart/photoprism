@@ -19,8 +19,20 @@
 
       <!-- Image avec rotation (sans crop temporairement) -->
       <v-card-text class="editor-content pa-0">
-        <div class="image-wrapper">
+        <div class="image-wrapper" ref="imageWrapper">
           <img v-if="imageUrl" ref="imageElement" :src="imageUrl" :style="imageStyle" class="editor-image" @load="onImageLoad" />
+
+          <!-- Overlay de crop -->
+          <div v-if="cropMode && isImageLoaded" class="crop-overlay" :style="cropOverlayStyle">
+            <!-- Rectangle de crop -->
+            <div class="crop-rect" :style="cropRectStyle" @mousedown.stop="startCropDrag">
+              <!-- Poignées de redimensionnement -->
+              <div class="crop-handle crop-handle-nw" @mousedown.stop="startCropResize('nw', $event)"></div>
+              <div class="crop-handle crop-handle-ne" @mousedown.stop="startCropResize('ne', $event)"></div>
+              <div class="crop-handle crop-handle-sw" @mousedown.stop="startCropResize('sw', $event)"></div>
+              <div class="crop-handle crop-handle-se" @mousedown.stop="startCropResize('se', $event)"></div>
+            </div>
+          </div>
         </div>
       </v-card-text>
 
@@ -30,6 +42,30 @@
           <v-card-title>{{ $gettext("Crop Options") }}</v-card-title>
 
           <v-card-text>
+            <!-- Bouton Crop -->
+            <v-btn block :color="cropMode ? 'primary' : 'default'" :variant="cropMode ? 'flat' : 'outlined'" class="mb-4" @click="toggleCropMode">
+              <v-icon start>mdi-crop</v-icon>
+              {{ cropMode ? $gettext("Cropping...") : $gettext("Crop Image") }}
+            </v-btn>
+
+            <!-- Boutons Annuler / Valider (visibles seulement en mode crop) -->
+            <v-expand-transition>
+              <div v-if="cropMode" class="mb-4">
+                <v-btn-group divided density="compact" variant="outlined" class="d-flex">
+                  <v-btn @click="cancelCrop" color="error" style="flex: 1">
+                    <v-icon>mdi-close</v-icon>
+                    <span class="ml-1">{{ $gettext("Cancel") }}</span>
+                  </v-btn>
+                  <v-btn @click="applyCrop" color="success" style="flex: 1">
+                    <v-icon>mdi-check</v-icon>
+                    <span class="ml-1">{{ $gettext("Apply") }}</span>
+                  </v-btn>
+                </v-btn-group>
+              </div>
+            </v-expand-transition>
+
+            <v-divider class="my-4"></v-divider>
+
             <!-- Aspect Ratio (désactivé temporairement) -->
             <!--
             <v-select
@@ -200,6 +236,20 @@ export default {
       isImageLoaded: false, // Nouveau flag pour savoir si l'image est chargée
       showPreview: false,
       previewUpdateTimer: null,
+      // Crop
+      cropMode: false,
+      cropRect: {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      },
+      cropDragging: false,
+      cropResizing: false,
+      cropResizeHandle: null,
+      cropDragStart: { x: 0, y: 0 },
+      cropRectStart: { x: 0, y: 0, width: 0, height: 0 },
+      imageRect: { x: 0, y: 0, width: 0, height: 0 },
     };
   },
   computed: {
@@ -222,8 +272,30 @@ export default {
         transform: transform.trim(),
       };
     },
+    cropOverlayStyle() {
+      if (!this.imageRect.width) return {};
+
+      return {
+        position: "absolute",
+        left: `${this.imageRect.x}px`,
+        top: `${this.imageRect.y}px`,
+        width: `${this.imageRect.width}px`,
+        height: `${this.imageRect.height}px`,
+      };
+    },
+    cropRectStyle() {
+      return {
+        left: `${this.cropRect.x}px`,
+        top: `${this.cropRect.y}px`,
+        width: `${this.cropRect.width}px`,
+        height: `${this.cropRect.height}px`,
+      };
+    },
     cropInfo() {
-      return this.$gettext("Crop disabled (debug mode)");
+      if (!this.cropMode) {
+        return this.$gettext("No crop");
+      }
+      return `${Math.round(this.cropRect.width)} × ${Math.round(this.cropRect.height)}px`;
     },
     flipInfo() {
       const flips = [];
@@ -239,10 +311,25 @@ export default {
       // Formater en YAML
       let yaml = "# Sidecar YAML Preview\n";
       yaml += "crop:\n";
-      yaml += "  left: 0.000000  # Disabled in debug mode\n";
-      yaml += "  top: 0.000000\n";
-      yaml += "  width: 1.000000\n";
-      yaml += "  height: 1.000000\n";
+
+      if (this.cropMode && this.cropRect.width > 0) {
+        // Calculer les coordonnées relatives
+        const relX = this.cropRect.x / this.imageRect.width;
+        const relY = this.cropRect.y / this.imageRect.height;
+        const relW = this.cropRect.width / this.imageRect.width;
+        const relH = this.cropRect.height / this.imageRect.height;
+
+        yaml += `  left: ${relX.toFixed(6)}\n`;
+        yaml += `  top: ${relY.toFixed(6)}\n`;
+        yaml += `  width: ${relW.toFixed(6)}\n`;
+        yaml += `  height: ${relH.toFixed(6)}\n`;
+      } else {
+        yaml += "  left: 0.000000\n";
+        yaml += "  top: 0.000000\n";
+        yaml += "  width: 1.000000\n";
+        yaml += "  height: 1.000000\n";
+      }
+
       yaml += `rotation: ${this.rotationAngle}\n`;
       yaml += "flip:\n";
       yaml += `  horizontal: ${this.flipHorizontal}\n`;
@@ -271,6 +358,14 @@ export default {
         });
       }
     },
+    cropRect: {
+      handler() {
+        if (this.showPreview && this.isImageLoaded && this.cropMode) {
+          this.schedulePreviewUpdate();
+        }
+      },
+      deep: true,
+    },
     rotationAngle() {
       if (this.showPreview && this.isImageLoaded) {
         this.schedulePreviewUpdate();
@@ -291,6 +386,14 @@ export default {
     if (this.visible && this.model) {
       this.loadImage();
     }
+
+    // Event listeners pour le crop
+    document.addEventListener("mousemove", this.onCropMouseMove);
+    document.addEventListener("mouseup", this.onCropMouseUp);
+  },
+  beforeUnmount() {
+    document.removeEventListener("mousemove", this.onCropMouseMove);
+    document.removeEventListener("mouseup", this.onCropMouseUp);
   },
   methods: {
     loadImage() {
@@ -315,12 +418,180 @@ export default {
 
       this.isImageLoaded = true;
 
+      // Calculer la position et taille de l'image affichée
+      this.$nextTick(() => {
+        this.updateImageRect();
+      });
+
       // Mettre à jour l'aperçu si activé
       if (this.showPreview) {
         this.$nextTick(() => {
           this.updatePreview();
         });
       }
+    },
+
+    updateImageRect() {
+      const img = this.$refs.imageElement;
+      if (!img) return;
+
+      const rect = img.getBoundingClientRect();
+      const wrapper = this.$refs.imageWrapper;
+      const wrapperRect = wrapper.getBoundingClientRect();
+
+      this.imageRect = {
+        x: rect.left - wrapperRect.left,
+        y: rect.top - wrapperRect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    },
+
+    toggleCropMode() {
+      this.cropMode = !this.cropMode;
+
+      if (this.cropMode) {
+        // Initialiser le rectangle de crop (80% de l'image, centré)
+        const margin = 0.1;
+        this.cropRect = {
+          x: this.imageRect.width * margin,
+          y: this.imageRect.height * margin,
+          width: this.imageRect.width * (1 - 2 * margin),
+          height: this.imageRect.height * (1 - 2 * margin),
+        };
+      }
+    },
+
+    cancelCrop() {
+      this.cropMode = false;
+      this.cropRect = { x: 0, y: 0, width: 0, height: 0 };
+    },
+
+    applyCrop() {
+      if (!this.cropRect.width || !this.cropRect.height) {
+        this.$notify.warn(this.$gettext("Please select a crop area"));
+        return;
+      }
+
+      // Créer une nouvelle image croppée
+      const img = this.$refs.imageElement;
+      if (!img) return;
+
+      // Créer un canvas temporaire
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // Calculer les coordonnées dans l'image originale
+      const scaleX = img.naturalWidth / this.imageRect.width;
+      const scaleY = img.naturalHeight / this.imageRect.height;
+
+      const cropX = this.cropRect.x * scaleX;
+      const cropY = this.cropRect.y * scaleY;
+      const cropW = this.cropRect.width * scaleX;
+      const cropH = this.cropRect.height * scaleY;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+
+      // Dessiner la partie croppée
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      // Convertir en data URL et remplacer l'image
+      this.imageUrl = canvas.toDataURL("image/jpeg", 0.95);
+
+      // Réinitialiser le crop
+      this.cropMode = false;
+      this.cropRect = { x: 0, y: 0, width: 0, height: 0 };
+
+      // Attendre que l'image soit chargée
+      this.$nextTick(() => {
+        this.updateImageRect();
+        if (this.showPreview) {
+          this.schedulePreviewUpdate();
+        }
+      });
+
+      this.$notify.success(this.$gettext("Crop applied"));
+    },
+
+    startCropDrag(event) {
+      this.cropDragging = true;
+      this.cropDragStart = {
+        x: event.clientX,
+        y: event.clientY,
+      };
+      this.cropRectStart = { ...this.cropRect };
+
+      event.preventDefault();
+    },
+
+    startCropResize(handle, event) {
+      this.cropResizing = true;
+      this.cropResizeHandle = handle;
+      this.cropDragStart = {
+        x: event.clientX,
+        y: event.clientY,
+      };
+      this.cropRectStart = { ...this.cropRect };
+
+      event.preventDefault();
+    },
+
+    onCropMouseMove(event) {
+      if (this.cropDragging) {
+        const dx = event.clientX - this.cropDragStart.x;
+        const dy = event.clientY - this.cropDragStart.y;
+
+        this.cropRect.x = Math.max(0, Math.min(this.imageRect.width - this.cropRect.width, this.cropRectStart.x + dx));
+        this.cropRect.y = Math.max(0, Math.min(this.imageRect.height - this.cropRect.height, this.cropRectStart.y + dy));
+      } else if (this.cropResizing) {
+        const dx = event.clientX - this.cropDragStart.x;
+        const dy = event.clientY - this.cropDragStart.y;
+
+        switch (this.cropResizeHandle) {
+          case "nw":
+            const newWidthNW = this.cropRectStart.width - dx;
+            const newHeightNW = this.cropRectStart.height - dy;
+            if (newWidthNW >= 50 && this.cropRectStart.x + dx >= 0) {
+              this.cropRect.x = this.cropRectStart.x + dx;
+              this.cropRect.width = newWidthNW;
+            }
+            if (newHeightNW >= 50 && this.cropRectStart.y + dy >= 0) {
+              this.cropRect.y = this.cropRectStart.y + dy;
+              this.cropRect.height = newHeightNW;
+            }
+            break;
+
+          case "ne":
+            this.cropRect.width = Math.max(50, Math.min(this.imageRect.width - this.cropRect.x, this.cropRectStart.width + dx));
+            const newHeightNE = this.cropRectStart.height - dy;
+            if (newHeightNE >= 50 && this.cropRectStart.y + dy >= 0) {
+              this.cropRect.y = this.cropRectStart.y + dy;
+              this.cropRect.height = newHeightNE;
+            }
+            break;
+
+          case "sw":
+            const newWidthSW = this.cropRectStart.width - dx;
+            if (newWidthSW >= 50 && this.cropRectStart.x + dx >= 0) {
+              this.cropRect.x = this.cropRectStart.x + dx;
+              this.cropRect.width = newWidthSW;
+            }
+            this.cropRect.height = Math.max(50, Math.min(this.imageRect.height - this.cropRect.y, this.cropRectStart.height + dy));
+            break;
+
+          case "se":
+            this.cropRect.width = Math.max(50, Math.min(this.imageRect.width - this.cropRect.x, this.cropRectStart.width + dx));
+            this.cropRect.height = Math.max(50, Math.min(this.imageRect.height - this.cropRect.y, this.cropRectStart.height + dy));
+            break;
+        }
+      }
+    },
+
+    onCropMouseUp() {
+      this.cropDragging = false;
+      this.cropResizing = false;
+      this.cropResizeHandle = null;
     },
 
     rotate(angle) {
@@ -389,9 +660,26 @@ export default {
       try {
         const ctx = canvas.getContext("2d");
 
+        // Si en mode crop, dessiner seulement la zone croppée
+        let sourceX = 0,
+          sourceY = 0,
+          sourceWidth = img.naturalWidth,
+          sourceHeight = img.naturalHeight;
+
+        if (this.cropMode && this.cropRect.width > 0) {
+          // Calculer les coordonnées dans l'image originale
+          const scaleX = img.naturalWidth / this.imageRect.width;
+          const scaleY = img.naturalHeight / this.imageRect.height;
+
+          sourceX = this.cropRect.x * scaleX;
+          sourceY = this.cropRect.y * scaleY;
+          sourceWidth = this.cropRect.width * scaleX;
+          sourceHeight = this.cropRect.height * scaleY;
+        }
+
         // Calculer les dimensions en tenant compte de la rotation
-        let width = img.naturalWidth;
-        let height = img.naturalHeight;
+        let width = sourceWidth;
+        let height = sourceHeight;
 
         // Échanger largeur et hauteur si rotation de 90 ou 270 degrés
         if (this.rotationAngle === 90 || this.rotationAngle === 270) {
@@ -417,10 +705,10 @@ export default {
         // Appliquer le flip
         ctx.scale(this.flipHorizontal ? -1 : 1, this.flipVertical ? -1 : 1);
 
-        // Dessiner l'image (centrée à l'origine)
-        const drawWidth = img.naturalWidth * scale;
-        const drawHeight = img.naturalHeight * scale;
-        ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+        // Dessiner l'image (ou la partie croppée)
+        const drawWidth = sourceWidth * scale;
+        const drawHeight = sourceHeight * scale;
+        ctx.drawImage(img, sourceX, sourceY, sourceWidth, sourceHeight, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
 
         // Restaurer le contexte
         ctx.restore();
@@ -526,6 +814,7 @@ export default {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    position: relative;
   }
 
   .editor-image {
@@ -533,6 +822,65 @@ export default {
     max-height: 100%;
     object-fit: contain;
     transition: transform 0.3s ease;
+  }
+
+  .crop-overlay {
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .crop-rect {
+    position: absolute;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    cursor: move;
+    pointer-events: all;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px;
+      height: 20px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+    }
+  }
+
+  .crop-handle {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border: 2px solid #000;
+    border-radius: 50%;
+
+    &.crop-handle-nw {
+      top: -8px;
+      left: -8px;
+      cursor: nw-resize;
+    }
+
+    &.crop-handle-ne {
+      top: -8px;
+      right: -8px;
+      cursor: ne-resize;
+    }
+
+    &.crop-handle-sw {
+      bottom: -8px;
+      left: -8px;
+      cursor: sw-resize;
+    }
+
+    &.crop-handle-se {
+      bottom: -8px;
+      right: -8px;
+      cursor: se-resize;
+    }
   }
 
   .editor-sidebar {
