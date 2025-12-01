@@ -17,10 +17,10 @@
         </v-btn>
       </v-toolbar>
 
-      <!-- Image avec rotation (sans crop temporairement) -->
+      <!-- Image avec rotation -->
       <v-card-text class="editor-content pa-0">
         <div class="image-wrapper" ref="imageWrapper">
-          <img v-if="imageUrl" ref="imageElement" :src="imageUrl" :style="imageStyle" class="editor-image" @load="onImageLoad" />
+          <img v-if="displayImageUrl" ref="imageElement" :src="displayImageUrl" :style="imageStyle" class="editor-image" @load="onImageLoad" />
 
           <!-- Overlay de crop -->
           <div v-if="cropMode && isImageLoaded" class="crop-overlay" :style="cropOverlayStyle">
@@ -234,7 +234,7 @@ export default {
       coordinates: null,
       originalImageSize: { width: 0, height: 0 },
       isImageLoaded: false, // Nouveau flag pour savoir si l'image est chargée
-      showPreview: false,
+      showPreview: true,
       previewUpdateTimer: null,
       // Crop
       cropMode: false,
@@ -250,9 +250,21 @@ export default {
       cropDragStart: { x: 0, y: 0 },
       cropRectStart: { x: 0, y: 0, width: 0, height: 0 },
       imageRect: { x: 0, y: 0, width: 0, height: 0 },
+      // Images
+      originalImageUrl: "", // Image non-croppée
+      croppedImageUrl: "", // Image après crop
+      lastCropRect: null, // Dernier crop appliqué
     };
   },
   computed: {
+    displayImageUrl() {
+      // En mode crop, toujours afficher l'image originale
+      if (this.cropMode) {
+        return this.originalImageUrl;
+      }
+      // Sinon afficher l'image croppée si elle existe
+      return this.croppedImageUrl || this.originalImageUrl;
+    },
     imageStyle() {
       let transform = "";
 
@@ -351,6 +363,14 @@ export default {
         this.loadImage();
       }
     },
+    cropMode(val) {
+      if (val) {
+        // Attendre que l'image originale soit chargée
+        this.$nextTick(() => {
+          this.updateImageRect();
+        });
+      }
+    },
     showPreview(val) {
       if (val) {
         this.$nextTick(() => {
@@ -400,7 +420,9 @@ export default {
       if (!this.model) return;
 
       // Charger l'URL de l'image en haute résolution
-      this.imageUrl = this.model.thumbnailUrl("fit_2048");
+      this.originalImageUrl = this.model.thumbnailUrl("fit_2048");
+      this.imageUrl = this.originalImageUrl;
+      this.croppedImageUrl = "";
 
       // Réinitialiser les valeurs
       this.reset();
@@ -451,20 +473,30 @@ export default {
       this.cropMode = !this.cropMode;
 
       if (this.cropMode) {
-        // Initialiser le rectangle de crop (80% de l'image, centré)
-        const margin = 0.1;
-        this.cropRect = {
-          x: this.imageRect.width * margin,
-          y: this.imageRect.height * margin,
-          width: this.imageRect.width * (1 - 2 * margin),
-          height: this.imageRect.height * (1 - 2 * margin),
-        };
+        // Attendre que l'image originale soit chargée et affichée
+        this.$nextTick(() => {
+          this.updateImageRect();
+
+          // Si on a déjà fait un crop, restaurer le rectangle de la dernière fois
+          if (this.lastCropRect) {
+            this.cropRect = { ...this.lastCropRect };
+          } else {
+            // Sinon, initialiser le rectangle de crop (80% de l'image, centré)
+            const margin = 0.1;
+            this.cropRect = {
+              x: this.imageRect.width * margin,
+              y: this.imageRect.height * margin,
+              width: this.imageRect.width * (1 - 2 * margin),
+              height: this.imageRect.height * (1 - 2 * margin),
+            };
+          }
+        });
       }
     },
 
     cancelCrop() {
       this.cropMode = false;
-      this.cropRect = { x: 0, y: 0, width: 0, height: 0 };
+      // Ne pas réinitialiser cropRect ici, on le garde pour la prochaine fois
     },
 
     applyCrop() {
@@ -496,16 +528,18 @@ export default {
       // Dessiner la partie croppée
       ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-      // Convertir en data URL et remplacer l'image
-      this.imageUrl = canvas.toDataURL("image/jpeg", 0.95);
+      // Sauvegarder l'image croppée
+      this.croppedImageUrl = canvas.toDataURL("image/jpeg", 0.95);
 
-      // Réinitialiser le crop
+      // Sauvegarder le rectangle de crop pour pouvoir le restaurer
+      this.lastCropRect = { ...this.cropRect };
+
+      // Sortir du mode crop
       this.cropMode = false;
-      this.cropRect = { x: 0, y: 0, width: 0, height: 0 };
 
-      // Attendre que l'image soit chargée
+      // Attendre que l'image croppée soit chargée
       this.$nextTick(() => {
-        this.updateImageRect();
+        // L'image va se recharger avec onImageLoad
         if (this.showPreview) {
           this.schedulePreviewUpdate();
         }
@@ -650,68 +684,79 @@ export default {
     },
 
     updatePreview() {
-      const img = this.$refs.imageElement;
       const canvas = this.$refs.previewCanvas;
 
-      if (!img || !canvas || !this.isImageLoaded) {
+      if (!canvas || !this.isImageLoaded) {
         return;
       }
 
       try {
         const ctx = canvas.getContext("2d");
 
-        // Si en mode crop, dessiner seulement la zone croppée
-        let sourceX = 0,
-          sourceY = 0,
-          sourceWidth = img.naturalWidth,
-          sourceHeight = img.naturalHeight;
+        // Créer un élément image temporaire pour la source correcte
+        const sourceImg = new Image();
+        sourceImg.crossOrigin = "anonymous";
 
-        if (this.cropMode && this.cropRect.width > 0) {
-          // Calculer les coordonnées dans l'image originale
-          const scaleX = img.naturalWidth / this.imageRect.width;
-          const scaleY = img.naturalHeight / this.imageRect.height;
+        // En mode crop, utiliser l'original avec le rectangle
+        // Sinon, utiliser l'image croppée si elle existe
+        const useUrl = this.cropMode ? this.originalImageUrl : this.croppedImageUrl || this.originalImageUrl;
 
-          sourceX = this.cropRect.x * scaleX;
-          sourceY = this.cropRect.y * scaleY;
-          sourceWidth = this.cropRect.width * scaleX;
-          sourceHeight = this.cropRect.height * scaleY;
-        }
+        sourceImg.onload = () => {
+          // Si en mode crop, dessiner seulement la zone du rectangle
+          let sourceX = 0,
+            sourceY = 0,
+            sourceWidth = sourceImg.naturalWidth,
+            sourceHeight = sourceImg.naturalHeight;
 
-        // Calculer les dimensions en tenant compte de la rotation
-        let width = sourceWidth;
-        let height = sourceHeight;
+          if (this.cropMode && this.cropRect.width > 0) {
+            // Calculer les coordonnées dans l'image originale
+            const scaleX = sourceImg.naturalWidth / this.imageRect.width;
+            const scaleY = sourceImg.naturalHeight / this.imageRect.height;
 
-        // Échanger largeur et hauteur si rotation de 90 ou 270 degrés
-        if (this.rotationAngle === 90 || this.rotationAngle === 270) {
-          [width, height] = [height, width];
-        }
+            sourceX = this.cropRect.x * scaleX;
+            sourceY = this.cropRect.y * scaleY;
+            sourceWidth = this.cropRect.width * scaleX;
+            sourceHeight = this.cropRect.height * scaleY;
+          }
 
-        // Redimensionner pour tenir dans la sidebar
-        const maxWidth = 280;
-        const scale = Math.min(1, maxWidth / width);
+          // Calculer les dimensions en tenant compte de la rotation
+          let width = sourceWidth;
+          let height = sourceHeight;
 
-        canvas.width = width * scale;
-        canvas.height = height * scale;
+          // Échanger largeur et hauteur si rotation de 90 ou 270 degrés
+          if (this.rotationAngle === 90 || this.rotationAngle === 270) {
+            [width, height] = [height, width];
+          }
 
-        // Sauvegarder le contexte
-        ctx.save();
+          // Redimensionner pour tenir dans la sidebar
+          const maxWidth = 280;
+          const scale = Math.min(1, maxWidth / width);
 
-        // Centrer l'origine de transformation
-        ctx.translate(canvas.width / 2, canvas.height / 2);
+          canvas.width = width * scale;
+          canvas.height = height * scale;
 
-        // Appliquer la rotation
-        ctx.rotate((this.rotationAngle * Math.PI) / 180);
+          // Sauvegarder le contexte
+          ctx.save();
 
-        // Appliquer le flip
-        ctx.scale(this.flipHorizontal ? -1 : 1, this.flipVertical ? -1 : 1);
+          // Centrer l'origine de transformation
+          ctx.translate(canvas.width / 2, canvas.height / 2);
 
-        // Dessiner l'image (ou la partie croppée)
-        const drawWidth = sourceWidth * scale;
-        const drawHeight = sourceHeight * scale;
-        ctx.drawImage(img, sourceX, sourceY, sourceWidth, sourceHeight, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+          // Appliquer la rotation
+          ctx.rotate((this.rotationAngle * Math.PI) / 180);
 
-        // Restaurer le contexte
-        ctx.restore();
+          // Appliquer le flip
+          ctx.scale(this.flipHorizontal ? -1 : 1, this.flipVertical ? -1 : 1);
+
+          // Dessiner l'image (ou la partie croppée)
+          const drawWidth = sourceWidth * scale;
+          const drawHeight = sourceHeight * scale;
+          ctx.drawImage(sourceImg, sourceX, sourceY, sourceWidth, sourceHeight, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+
+          // Restaurer le contexte
+          ctx.restore();
+        };
+
+        sourceImg.src = useUrl;
       } catch (error) {
         console.error("Error updating preview:", error);
       }
