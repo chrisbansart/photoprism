@@ -1,7 +1,7 @@
 <template>
   <v-dialog :model-value="visible" fullscreen persistent theme="dark" class="p-dialog p-image-editor" @keydown.esc.exact.stop="onClose">
     <v-card class="image-editor-container">
-      <!-- Header avec les contrôles -->
+      <!-- Toolbar -->
       <v-toolbar dark color="black" density="compact">
         <v-btn icon @click="onClose">
           <v-icon>mdi-close</v-icon>
@@ -11,57 +11,146 @@
 
         <v-spacer></v-spacer>
 
-        <!-- Boutons d'outils -->
-        <v-btn icon :class="{ active: tool === 'crop' }" @click="tool = 'crop'">
-          <v-icon>mdi-crop</v-icon>
-        </v-btn>
-
-        <v-btn icon :class="{ active: tool === 'rotate' }" @click="tool = 'rotate'">
-          <v-icon>mdi-rotate-right</v-icon>
-        </v-btn>
-
-        <v-divider vertical class="mx-2"></v-divider>
-
         <v-btn color="primary" variant="flat" @click="onSave">
+          <v-icon start>mdi-content-save</v-icon>
           {{ $gettext("Save") }}
         </v-btn>
       </v-toolbar>
 
-      <!-- Zone d'édition de l'image -->
+      <!-- Image avec rotation (sans crop temporairement) -->
       <v-card-text class="editor-content pa-0">
-        <div ref="editorContainer" class="editor-canvas-container">
-          <!-- L'image sera affichée ici -->
-          <img v-if="imageUrl" ref="imageElement" :src="imageUrl" class="editor-image" @load="onImageLoad" />
-
-          <!-- Overlay pour le crop -->
-          <div v-if="tool === 'crop' && imageLoaded" class="crop-overlay">
-            <div ref="cropBox" class="crop-box" :style="cropBoxStyle" @mousedown="startDrag">
-              <!-- Poignées de redimensionnement -->
-              <div class="crop-handle crop-handle-nw" @mousedown.stop="startResize('nw')"></div>
-              <div class="crop-handle crop-handle-ne" @mousedown.stop="startResize('ne')"></div>
-              <div class="crop-handle crop-handle-sw" @mousedown.stop="startResize('sw')"></div>
-              <div class="crop-handle crop-handle-se" @mousedown.stop="startResize('se')"></div>
-            </div>
-          </div>
+        <div class="image-wrapper">
+          <img v-if="imageUrl" ref="imageElement" :src="imageUrl" :style="imageStyle" class="editor-image" @load="onImageLoad" />
         </div>
       </v-card-text>
 
-      <!-- Panneau latéral avec les options -->
-      <v-navigation-drawer v-if="tool === 'crop'" permanent location="right" width="300" class="editor-sidebar">
+      <!-- Sidebar avec options -->
+      <v-navigation-drawer permanent location="right" width="320" class="editor-sidebar">
         <v-card flat>
           <v-card-title>{{ $gettext("Crop Options") }}</v-card-title>
+
           <v-card-text>
+            <!-- Aspect Ratio (désactivé temporairement) -->
+            <!--
             <v-select
               v-model="aspectRatio"
               :label="$gettext('Aspect Ratio')"
               :items="aspectRatioOptions"
               density="compact"
-              @update:model-value="updateCropBox"
+              variant="outlined"
+              class="mb-4"
             ></v-select>
+            -->
 
-            <div class="mt-4">
-              <div class="text-caption">{{ $gettext("Dimensions") }}</div>
-              <div class="text-body-2">{{ cropWidth }} × {{ cropHeight }} px</div>
+            <!-- Rotation -->
+            <div class="mb-4">
+              <div class="text-subtitle-2 mb-2">{{ $gettext("Rotation") }}</div>
+              <v-btn-group divided density="compact" variant="outlined" class="d-flex">
+                <v-btn @click="rotate(-90)" :disabled="!isImageLoaded" style="flex: 1">
+                  <v-icon>mdi-rotate-left</v-icon>
+                  <span class="ml-1">-90°</span>
+                </v-btn>
+                <v-btn @click="rotate(90)" :disabled="!isImageLoaded" style="flex: 1">
+                  <v-icon>mdi-rotate-right</v-icon>
+                  <span class="ml-1">+90°</span>
+                </v-btn>
+              </v-btn-group>
+            </div>
+
+            <!-- Flip -->
+            <div class="mb-4">
+              <div class="text-subtitle-2 mb-2">{{ $gettext("Flip") }}</div>
+              <v-btn-group divided density="compact" variant="outlined" class="d-flex">
+                <v-btn @click="flip(true, false)" :disabled="!isImageLoaded" style="flex: 1">
+                  <v-icon>mdi-flip-horizontal</v-icon>
+                  <span class="ml-1">{{ $gettext("Horizontal") }}</span>
+                </v-btn>
+                <v-btn @click="flip(false, true)" :disabled="!isImageLoaded" style="flex: 1">
+                  <v-icon>mdi-flip-vertical</v-icon>
+                  <span class="ml-1">{{ $gettext("Vertical") }}</span>
+                </v-btn>
+              </v-btn-group>
+            </div>
+
+            <!-- Zoom (désactivé temporairement) -->
+            <!--
+            <div class="mb-4">
+              <div class="text-subtitle-2 mb-2">{{ $gettext('Zoom') }}</div>
+              <v-slider
+                v-model="zoom"
+                :min="0.1"
+                :max="3"
+                :step="0.1"
+                :disabled="!isImageLoaded"
+                thumb-label
+                density="compact"
+                @update:model-value="onZoomChange"
+              >
+                <template #append>
+                  <v-btn icon size="small" variant="text" :disabled="!isImageLoaded" @click="resetZoom">
+                    <v-icon>mdi-restore</v-icon>
+                  </v-btn>
+                </template>
+              </v-slider>
+            </div>
+            -->
+
+            <!-- Preview Toggle -->
+            <v-divider class="my-4"></v-divider>
+
+            <v-switch v-model="showPreview" :label="$gettext('Show preview with changes')" color="primary" density="compact" hide-details></v-switch>
+
+            <v-expand-transition>
+              <div v-if="showPreview" class="mt-4">
+                <canvas ref="previewCanvas" class="preview-canvas" @click="downloadPreview"></canvas>
+                <div class="text-caption text-center mt-2 text-medium-emphasis">
+                  {{ $gettext("Click to download preview") }}
+                </div>
+              </div>
+            </v-expand-transition>
+
+            <!-- Reset -->
+            <v-divider class="my-4"></v-divider>
+
+            <v-btn block variant="outlined" color="warning" @click="reset">
+              <v-icon start>mdi-refresh</v-icon>
+              {{ $gettext("Reset All") }}
+            </v-btn>
+
+            <!-- Info sur les modifications -->
+            <v-divider class="my-4"></v-divider>
+
+            <div class="text-caption text-medium-emphasis">
+              <div class="mb-2">
+                <strong>{{ $gettext("Crop:") }}</strong>
+                {{ cropInfo }}
+              </div>
+              <div class="mb-2">
+                <strong>{{ $gettext("Rotation:") }}</strong>
+                {{ rotationAngle }}°
+              </div>
+              <div class="mb-2">
+                <strong>{{ $gettext("Flip:") }}</strong>
+                {{ flipInfo }}
+              </div>
+            </div>
+
+            <!-- Info sur le sidecar -->
+            <v-alert type="info" variant="tonal" density="compact" class="mt-4">
+              {{ $gettext("Changes will be saved in a YAML sidecar file without modifying the original image.") }}
+            </v-alert>
+
+            <!-- Debug YAML en temps réel -->
+            <v-divider class="my-4"></v-divider>
+
+            <div class="yaml-debug">
+              <div class="d-flex align-center mb-2">
+                <span class="text-subtitle-2 flex-grow-1">{{ $gettext("YAML Preview") }}</span>
+                <v-btn icon size="x-small" variant="text" @click="copyYamlToClipboard" :title="$gettext('Copy to clipboard')">
+                  <v-icon size="small">mdi-content-copy</v-icon>
+                </v-btn>
+              </div>
+              <pre class="yaml-preview">{{ yamlPreview }}</pre>
             </div>
           </v-card-text>
         </v-card>
@@ -71,8 +160,14 @@
 </template>
 
 <script>
+// import { Cropper } from 'vue-advanced-cropper';
+// import 'vue-advanced-cropper/dist/style.css';
+
 export default {
   name: "PImageEditor",
+  components: {
+    // Cropper
+  },
   props: {
     visible: {
       type: Boolean,
@@ -86,53 +181,81 @@ export default {
   emits: ["close", "save"],
   data() {
     return {
-      tool: "crop",
       imageUrl: "",
-      imageLoaded: false,
       aspectRatio: "free",
       aspectRatioOptions: [
         { value: "free", title: this.$gettext("Free") },
-        { value: "1:1", title: "1:1 (Square)" },
+        { value: "1:1", title: "1:1 " + this.$gettext("(Square)") },
         { value: "4:3", title: "4:3" },
         { value: "16:9", title: "16:9" },
         { value: "3:2", title: "3:2" },
+        { value: "2:3", title: "2:3 " + this.$gettext("(Portrait)") },
       ],
-      // Crop box position and size
-      cropBox: {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-      },
-      // Image dimensions
-      imageRect: {
-        width: 0,
-        height: 0,
-        x: 0,
-        y: 0,
-      },
-      // Drag state
-      isDragging: false,
-      isResizing: false,
-      resizeHandle: null,
-      dragStart: { x: 0, y: 0 },
-      cropStart: { x: 0, y: 0, width: 0, height: 0 },
+      zoom: 1,
+      rotationAngle: 0,
+      flipHorizontal: false,
+      flipVertical: false,
+      coordinates: null,
+      originalImageSize: { width: 0, height: 0 },
+      isImageLoaded: false, // Nouveau flag pour savoir si l'image est chargée
+      showPreview: false,
+      previewUpdateTimer: null,
     };
   },
   computed: {
-    cropBoxStyle() {
+    imageStyle() {
+      let transform = "";
+
+      // Rotation
+      if (this.rotationAngle !== 0) {
+        transform += `rotate(${this.rotationAngle}deg) `;
+      }
+
+      // Flip
+      const scaleX = this.flipHorizontal ? -1 : 1;
+      const scaleY = this.flipVertical ? -1 : 1;
+      if (scaleX !== 1 || scaleY !== 1) {
+        transform += `scale(${scaleX}, ${scaleY})`;
+      }
+
       return {
-        left: `${this.cropBox.x}px`,
-        top: `${this.cropBox.y}px`,
-        width: `${this.cropBox.width}px`,
-        height: `${this.cropBox.height}px`,
+        transform: transform.trim(),
       };
     },
-    cropWidth() {
-      return Math.round(this.cropBox.width);
+    cropInfo() {
+      return this.$gettext("Crop disabled (debug mode)");
     },
-    cropHeight() {
-      return Math.round(this.cropBox.height);
+    flipInfo() {
+      const flips = [];
+      if (this.flipHorizontal) flips.push(this.$gettext("H"));
+      if (this.flipVertical) flips.push(this.$gettext("V"));
+      return flips.length > 0 ? flips.join(", ") : this.$gettext("None");
+    },
+    yamlPreview() {
+      if (!this.isImageLoaded) {
+        return "# Waiting for image to load...";
+      }
+
+      // Formater en YAML
+      let yaml = "# Sidecar YAML Preview\n";
+      yaml += "crop:\n";
+      yaml += "  left: 0.000000  # Disabled in debug mode\n";
+      yaml += "  top: 0.000000\n";
+      yaml += "  width: 1.000000\n";
+      yaml += "  height: 1.000000\n";
+      yaml += `rotation: ${this.rotationAngle}\n`;
+      yaml += "flip:\n";
+      yaml += `  horizontal: ${this.flipHorizontal}\n`;
+      yaml += `  vertical: ${this.flipVertical}\n`;
+
+      if (this.aspectRatio !== "free") {
+        yaml += `aspectRatio: "${this.aspectRatio}"\n`;
+      }
+
+      yaml += `editedAt: "${new Date().toISOString()}"\n`;
+      yaml += `editedBy: "${this.$session?.user?.Name || "user"}"\n`;
+
+      return yaml;
     },
   },
   watch: {
@@ -141,9 +264,26 @@ export default {
         this.loadImage();
       }
     },
-    model(val) {
-      if (val && this.visible) {
-        this.loadImage();
+    showPreview(val) {
+      if (val) {
+        this.$nextTick(() => {
+          this.updatePreview();
+        });
+      }
+    },
+    rotationAngle() {
+      if (this.showPreview && this.isImageLoaded) {
+        this.schedulePreviewUpdate();
+      }
+    },
+    flipHorizontal() {
+      if (this.showPreview && this.isImageLoaded) {
+        this.schedulePreviewUpdate();
+      }
+    },
+    flipVertical() {
+      if (this.showPreview && this.isImageLoaded) {
+        this.schedulePreviewUpdate();
       }
     },
   },
@@ -151,14 +291,6 @@ export default {
     if (this.visible && this.model) {
       this.loadImage();
     }
-
-    // Ajouter les event listeners pour le drag
-    document.addEventListener("mousemove", this.onMouseMove);
-    document.addEventListener("mouseup", this.onMouseUp);
-  },
-  beforeUnmount() {
-    document.removeEventListener("mousemove", this.onMouseMove);
-    document.removeEventListener("mouseup", this.onMouseUp);
   },
   methods: {
     loadImage() {
@@ -166,152 +298,203 @@ export default {
 
       // Charger l'URL de l'image en haute résolution
       this.imageUrl = this.model.thumbnailUrl("fit_2048");
-      this.imageLoaded = false;
+
+      // Réinitialiser les valeurs
+      this.reset();
+      this.isImageLoaded = false;
     },
 
     onImageLoad() {
-      this.imageLoaded = true;
-      this.$nextTick(() => {
-        this.initializeCropBox();
-      });
-    },
-
-    initializeCropBox() {
       const img = this.$refs.imageElement;
       if (!img) return;
 
-      const rect = img.getBoundingClientRect();
-      this.imageRect = {
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
+      this.originalImageSize = {
+        width: img.naturalWidth,
+        height: img.naturalHeight,
       };
 
-      // Initialiser le crop box au centre avec 80% de la taille de l'image
-      const margin = 0.1;
-      this.cropBox = {
-        x: rect.width * margin,
-        y: rect.height * margin,
-        width: rect.width * (1 - 2 * margin),
-        height: rect.height * (1 - 2 * margin),
-      };
-    },
+      this.isImageLoaded = true;
 
-    updateCropBox() {
-      if (this.aspectRatio === "free") return;
-
-      const [w, h] = this.aspectRatio.split(":").map(Number);
-      const ratio = w / h;
-
-      // Ajuster la hauteur en fonction de la largeur actuelle
-      const newHeight = this.cropBox.width / ratio;
-
-      if (newHeight <= this.imageRect.height - this.cropBox.y) {
-        this.cropBox.height = newHeight;
-      } else {
-        // Si la hauteur dépasse, ajuster la largeur
-        this.cropBox.height = this.imageRect.height - this.cropBox.y;
-        this.cropBox.width = this.cropBox.height * ratio;
+      // Mettre à jour l'aperçu si activé
+      if (this.showPreview) {
+        this.$nextTick(() => {
+          this.updatePreview();
+        });
       }
     },
 
-    startDrag(event) {
-      this.isDragging = true;
-      this.dragStart = { x: event.clientX, y: event.clientY };
-      this.cropStart = { ...this.cropBox };
+    rotate(angle) {
+      this.rotationAngle = (this.rotationAngle + angle) % 360;
+      if (this.rotationAngle < 0) this.rotationAngle += 360;
     },
 
-    startResize(handle) {
-      return (event) => {
-        this.isResizing = true;
-        this.resizeHandle = handle;
-        this.dragStart = { x: event.clientX, y: event.clientY };
-        this.cropStart = { ...this.cropBox };
-      };
+    flip(horizontal, vertical) {
+      if (horizontal) this.flipHorizontal = !this.flipHorizontal;
+      if (vertical) this.flipVertical = !this.flipVertical;
     },
 
-    onMouseMove(event) {
-      if (this.isDragging) {
-        const dx = event.clientX - this.dragStart.x;
-        const dy = event.clientY - this.dragStart.y;
-
-        this.cropBox.x = Math.max(0, Math.min(this.imageRect.width - this.cropBox.width, this.cropStart.x + dx));
-        this.cropBox.y = Math.max(0, Math.min(this.imageRect.height - this.cropBox.height, this.cropStart.y + dy));
-      } else if (this.isResizing) {
-        const dx = event.clientX - this.dragStart.x;
-        const dy = event.clientY - this.dragStart.y;
-
-        // Redimensionner selon la poignée utilisée
-        switch (this.resizeHandle) {
-          case "se": // Sud-est (bas-droite)
-            this.cropBox.width = Math.max(50, Math.min(this.imageRect.width - this.cropBox.x, this.cropStart.width + dx));
-            this.cropBox.height = Math.max(50, Math.min(this.imageRect.height - this.cropBox.y, this.cropStart.height + dy));
-            break;
-          case "sw": // Sud-ouest (bas-gauche)
-            const newWidth = this.cropStart.width - dx;
-            if (newWidth >= 50 && this.cropStart.x + dx >= 0) {
-              this.cropBox.x = this.cropStart.x + dx;
-              this.cropBox.width = newWidth;
-            }
-            this.cropBox.height = Math.max(50, Math.min(this.imageRect.height - this.cropBox.y, this.cropStart.height + dy));
-            break;
-          case "ne": // Nord-est (haut-droite)
-            this.cropBox.width = Math.max(50, Math.min(this.imageRect.width - this.cropBox.x, this.cropStart.width + dx));
-            const newHeight = this.cropStart.height - dy;
-            if (newHeight >= 50 && this.cropStart.y + dy >= 0) {
-              this.cropBox.y = this.cropStart.y + dy;
-              this.cropBox.height = newHeight;
-            }
-            break;
-          case "nw": // Nord-ouest (haut-gauche)
-            const newWidthNW = this.cropStart.width - dx;
-            if (newWidthNW >= 50 && this.cropStart.x + dx >= 0) {
-              this.cropBox.x = this.cropStart.x + dx;
-              this.cropBox.width = newWidthNW;
-            }
-            const newHeightNW = this.cropStart.height - dy;
-            if (newHeightNW >= 50 && this.cropStart.y + dy >= 0) {
-              this.cropBox.y = this.cropStart.y + dy;
-              this.cropBox.height = newHeightNW;
-            }
-            break;
-        }
-
-        // Maintenir le ratio si nécessaire
-        if (this.aspectRatio !== "free") {
-          this.updateCropBox();
-        }
-      }
+    onZoomChange(value) {
+      // Désactivé temporairement
+      console.log("Zoom:", value);
     },
 
-    onMouseUp() {
-      this.isDragging = false;
-      this.isResizing = false;
-      this.resizeHandle = null;
+    resetZoom() {
+      this.zoom = 1;
+    },
+
+    reset() {
+      this.aspectRatio = "free";
+      this.zoom = 1;
+      this.rotationAngle = 0;
+      this.flipHorizontal = false;
+      this.flipVertical = false;
     },
 
     onClose() {
       this.$emit("close");
     },
 
+    copyYamlToClipboard() {
+      if (navigator.clipboard && this.yamlPreview) {
+        navigator.clipboard
+          .writeText(this.yamlPreview)
+          .then(() => {
+            this.$notify.success(this.$gettext("YAML copied to clipboard"));
+          })
+          .catch((err) => {
+            console.error("Failed to copy:", err);
+            this.$notify.error(this.$gettext("Failed to copy"));
+          });
+      }
+    },
+
+    schedulePreviewUpdate() {
+      // Débounce pour éviter trop de mises à jour
+      if (this.previewUpdateTimer) {
+        clearTimeout(this.previewUpdateTimer);
+      }
+      this.previewUpdateTimer = setTimeout(() => {
+        this.updatePreview();
+      }, 300);
+    },
+
+    updatePreview() {
+      const img = this.$refs.imageElement;
+      const canvas = this.$refs.previewCanvas;
+
+      if (!img || !canvas || !this.isImageLoaded) {
+        return;
+      }
+
+      try {
+        const ctx = canvas.getContext("2d");
+
+        // Calculer les dimensions en tenant compte de la rotation
+        let width = img.naturalWidth;
+        let height = img.naturalHeight;
+
+        // Échanger largeur et hauteur si rotation de 90 ou 270 degrés
+        if (this.rotationAngle === 90 || this.rotationAngle === 270) {
+          [width, height] = [height, width];
+        }
+
+        // Redimensionner pour tenir dans la sidebar
+        const maxWidth = 280;
+        const scale = Math.min(1, maxWidth / width);
+
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+
+        // Sauvegarder le contexte
+        ctx.save();
+
+        // Centrer l'origine de transformation
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+
+        // Appliquer la rotation
+        ctx.rotate((this.rotationAngle * Math.PI) / 180);
+
+        // Appliquer le flip
+        ctx.scale(this.flipHorizontal ? -1 : 1, this.flipVertical ? -1 : 1);
+
+        // Dessiner l'image (centrée à l'origine)
+        const drawWidth = img.naturalWidth * scale;
+        const drawHeight = img.naturalHeight * scale;
+        ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+
+        // Restaurer le contexte
+        ctx.restore();
+      } catch (error) {
+        console.error("Error updating preview:", error);
+      }
+    },
+
+    downloadPreview() {
+      const canvas = this.$refs.previewCanvas;
+
+      if (!canvas) {
+        return;
+      }
+
+      try {
+        canvas.toBlob(
+          (blob) => {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `preview_${this.model?.UID || "image"}_${Date.now()}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            this.$notify.success(this.$gettext("Preview downloaded"));
+          },
+          "image/jpeg",
+          0.9
+        );
+      } catch (error) {
+        console.error("Error downloading preview:", error);
+        this.$notify.error(this.$gettext("Failed to download preview"));
+      }
+    },
+
     onSave() {
-      // Calculer les coordonnées relatives de crop (0-1)
-      const cropData = {
-        x: this.cropBox.x / this.imageRect.width,
-        y: this.cropBox.y / this.imageRect.height,
-        width: this.cropBox.width / this.imageRect.width,
-        height: this.cropBox.height / this.imageRect.height,
-      };
+      if (!this.isImageLoaded) {
+        this.$notify.error(this.$gettext("Image not loaded"));
+        return;
+      }
 
-      this.$emit("save", {
-        model: this.model,
-        tool: this.tool,
-        cropData: cropData,
-      });
+      try {
+        // Créer l'objet de métadonnées pour le sidecar YAML
+        const sidecarData = {
+          crop: {
+            left: 0,
+            top: 0,
+            width: 1,
+            height: 1,
+          },
+          rotation: this.rotationAngle,
+          flip: {
+            horizontal: this.flipHorizontal,
+            vertical: this.flipVertical,
+          },
+          aspectRatio: this.aspectRatio !== "free" ? this.aspectRatio : null,
+          editedAt: new Date().toISOString(),
+          editedBy: this.$session?.user?.Name || "user",
+        };
 
-      this.$notify.success(this.$gettext("Changes saved"));
-      this.onClose();
+        // Émettre l'événement save avec les données du sidecar
+        this.$emit("save", {
+          model: this.model,
+          sidecarData: sidecarData,
+        });
+
+        this.$notify.success(this.$gettext("Changes saved to sidecar file"));
+      } catch (error) {
+        console.error("Error saving changes:", error);
+        this.$notify.error(this.$gettext("Failed to save changes"));
+      }
     },
   },
 };
@@ -323,90 +506,88 @@ export default {
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background: #000;
+    background: #1e1e1e;
   }
 
   .editor-content {
     flex: 1;
     overflow: hidden;
+    position: relative;
+    background: #000;
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
   }
 
-  .editor-canvas-container {
-    position: relative;
-    max-width: 100%;
-    max-height: 100%;
+  .image-wrapper {
+    width: 100%;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 20px;
   }
 
   .editor-image {
     max-width: 100%;
-    max-height: calc(100vh - 64px);
-    display: block;
-    user-select: none;
-  }
-
-  .crop-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    pointer-events: none;
-  }
-
-  .crop-box {
-    position: absolute;
-    border: 2px solid #fff;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-    cursor: move;
-    pointer-events: all;
-  }
-
-  .crop-handle {
-    position: absolute;
-    width: 12px;
-    height: 12px;
-    background: #fff;
-    border: 2px solid #000;
-    border-radius: 50%;
-  }
-
-  .crop-handle-nw {
-    top: -6px;
-    left: -6px;
-    cursor: nw-resize;
-  }
-
-  .crop-handle-ne {
-    top: -6px;
-    right: -6px;
-    cursor: ne-resize;
-  }
-
-  .crop-handle-sw {
-    bottom: -6px;
-    left: -6px;
-    cursor: sw-resize;
-  }
-
-  .crop-handle-se {
-    bottom: -6px;
-    right: -6px;
-    cursor: se-resize;
+    max-height: 100%;
+    object-fit: contain;
+    transition: transform 0.3s ease;
   }
 
   .editor-sidebar {
     background: #1e1e1e;
   }
 
-  .v-btn.active {
-    background: rgba(255, 255, 255, 0.1);
+  .yaml-debug {
+    margin-top: 16px;
+  }
+
+  .preview-canvas {
+    width: 100%;
+    max-width: 280px;
+    height: auto;
+    border: 1px solid #333;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+
+    &:hover {
+      border-color: #666;
+    }
+  }
+
+  .yaml-preview {
+    background: #0d0d0d;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 12px;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #a0a0a0;
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre;
+
+    &::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: #1a1a1a;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: #444;
+      border-radius: 4px;
+
+      &:hover {
+        background: #555;
+      }
+    }
   }
 }
 </style>
