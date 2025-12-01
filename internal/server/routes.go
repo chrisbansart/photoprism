@@ -161,6 +161,11 @@ func registerRoutes(router *gin.Engine, conf *config.Config) {
 	api.LikeLabel(APIv1)
 	api.DislikeLabel(APIv1)
 
+	//Photo Edits
+	api.SavePhotoEdits(APIv1)
+	api.GetPhotoEdits(APIv1)
+	api.DeletePhotoEdits(APIv1)
+
 	// Files and Folders.
 	api.SearchFoldersOriginals(APIv1)
 	api.SearchFoldersImport(APIv1)

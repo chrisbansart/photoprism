@@ -564,22 +564,19 @@ export default {
       this.editorDialog.visible = true;
     },
 
-    onEditorSave(data) {
-      // Cette méthode sera appelée quand l'utilisateur sauvegarde ses modifications
-      // data contient : { model, tool, cropData }
+    async onEditorSave(data) {
+      try {
+        const response = await this.$api.post(`photos/${data.model.UID}/edits`, { sidecarData: data.sidecarData });
 
-      console.log("Saving editor changes:", data);
+        this.$notify.success("Image edited successfully");
+        this.editorDialog.visible = false;
 
-      // TODO: Implémenter la sauvegarde des modifications
-      // Vous devrez appeler une API pour appliquer le crop à l'image
-      // Par exemple :
-      // this.$api.post(`photos/${data.model.UID}/crop`, data.cropData)
-      //   .then(() => {
-      //     this.$notify.success(this.$gettext('Image updated'));
-      //     // Recharger l'image mise à jour
-      //   });
-
-      this.editorDialog.visible = false;
+        // Rafraîchir la photo pour voir les changements
+        this.refresh();
+      } catch (error) {
+        console.error("Failed to save edits:", error);
+        this.$notify.error("Failed to save edits");
+      }
     },
   },
 };

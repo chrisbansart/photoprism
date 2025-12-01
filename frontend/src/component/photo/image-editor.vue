@@ -10,13 +10,11 @@
         <v-toolbar-title>{{ $gettext("Edit Image") }}</v-toolbar-title>
 
         <v-spacer></v-spacer>
-
-        <v-btn color="primary" variant="flat" @click="onSave">
-          <v-icon start>mdi-content-save</v-icon>
-          {{ $gettext("Save") }}
-        </v-btn>
       </v-toolbar>
-
+      <v-btn color="primary" variant="flat" @click="onSave">
+        <v-icon start>mdi-content-save</v-icon>
+        {{ $gettext("Save") }}
+      </v-btn>
       <!-- Image originale avec overlays -->
       <v-card-text class="editor-content pa-0">
         <div class="image-wrapper" ref="imageWrapper">

@@ -1250,6 +1250,11 @@ func (m *Photo) SetStack(stack int8) {
 	}
 }
 
+// UpdateEditedAt met à jour le champ EditedAt
+func (m *Photo) UpdateEditedAt() error {
+	return Db().Model(m).Update("EditedAt", time.Now()).Error
+}
+
 // Approved checks if the photo is not in review.
 func (m *Photo) Approved() bool {
 	if !m.HasID() {
