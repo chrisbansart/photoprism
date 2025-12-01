@@ -644,6 +644,9 @@
     bottom: 0;
 }
 
+
+
+
 .search-results .result:hover .preview-details,
 .search-results .result:hover .input-view,
 .search-results .result:hover .input-open,
@@ -688,6 +691,14 @@
     left: 0;
     bottom: 0;
 }
+
+.cards-view .input-editor,
+.mosaic-view .input-editor {
+    opacity: 1;
+    right: 0;
+    top: 0;
+}
+
 
 .search-results .result .input-favorite .select-off,
 .search-results .result.is-favorite .input-favorite .select-on,

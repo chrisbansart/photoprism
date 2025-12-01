@@ -160,13 +160,13 @@
             <!--CB-->
             <button
               v-if="!isSharedView"
-              class="input-edit"
+              class="input-editor"
               @touchstart.stop="input.touchStart($event, index)"
               @touchend.stop="openEditor($event, index)"
               @touchmove.stop
               @click.stop.prevent="openEditor($event, index)"
             >
-              <i class="mdi mdi-pencil" />
+              <i class="mdi mdi-image-edit-outline" />
             </button>
             <!--CB-->
           </div>
