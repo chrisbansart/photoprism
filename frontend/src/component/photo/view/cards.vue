@@ -20,9 +20,12 @@
       </v-alert>
     </div>
     <div v-else class="v-row search-results photo-results cards-view" :class="{ 'select-results': selectMode }">
+      <h1>CARDS</h1>
       <div v-for="(m, index) in photos" :key="m.ID" ref="items" :data-index="index" class="v-col-12 v-col-sm-6 v-col-md-4 v-col-lg-3 v-col-xl-2">
+        <h1>CARD</h1>
         <div v-if="index < firstVisibleElementIndex || index > lastVisibleElementIndex" :data-id="m.ID" :data-uid="m.UID" class="media result placeholder">
           <div class="preview" />
+
           <div v-if="!isSharedView && m.Quality < 3 && context === contexts.Review" class="review" />
           <div class="meta">
             <button v-if="!showTitles || m.Title" class="action-title-edit meta-title text-truncate">
@@ -78,6 +81,8 @@
           </div>
         </div>
         <div v-else :data-id="m.ID" :data-uid="m.UID" class="media result" :class="m.classes()" @contextmenu.stop="onContextMenu($event, index)">
+          <h1>cardTitle</h1>
+
           <div
             :title="m.Title"
             :style="`background-image: url(${m.thumbnailUrl('tile_500')})`"
@@ -152,6 +157,18 @@
               <i v-if="m.Favorite" class="mdi mdi-star text-favorite favorite-on" />
               <i v-else class="mdi mdi-star-outline favorite-off" />
             </button>
+            <!--CB-->
+            <button
+              v-if="!isSharedView"
+              class="input-edit"
+              @touchstart.stop="input.touchStart($event, index)"
+              @touchend.stop="openEditor($event, index)"
+              @touchmove.stop
+              @click.stop.prevent="openEditor($event, index)"
+            >
+              <i class="mdi mdi-pencil" />
+            </button>
+            <!--CB-->
           </div>
 
           <div v-if="!isSharedView && m.Quality < 3 && context === contexts.Review" class="review">
@@ -258,6 +275,8 @@
         </div>
       </div>
     </div>
+    <!-- CB Éditeur d'image -->
+    <p-image-editor :visible="editorDialog.visible" :model="editorDialog.model" @close="editorDialog.visible = false" @save="onEditorSave"></p-image-editor>
   </div>
 </template>
 <script>
@@ -265,6 +284,7 @@ import download from "common/download";
 import $notify from "common/notify";
 import { Input, InputInvalid, ClickShort, ClickLong } from "common/input";
 import { virtualizationTools } from "common/virtualization-tools";
+import PImageEditor from "component/photo/image-editor.vue";
 import * as contexts from "options/contexts";
 import IconLivePhoto from "component/icon/live-photo.vue";
 
@@ -272,6 +292,7 @@ export default {
   name: "PPhotoViewCards",
   components: {
     IconLivePhoto,
+    PImageEditor,
   },
   props: {
     photos: {
@@ -336,6 +357,12 @@ export default {
       firstVisibleElementIndex: 0,
       lastVisibleElementIndex: 0,
       visibleElementIndices: new Set(),
+      //CB
+      editorDialog: {
+        visible: false,
+        model: null,
+      },
+      //
     };
   },
   watch: {
@@ -517,6 +544,42 @@ export default {
        * force an update to fix that.
        */
       this.$forceUpdate();
+    },
+    //CB
+    openEditor(ev, index) {
+      const inputType = this.input.eval(ev, index);
+
+      if (inputType !== ClickShort) {
+        return;
+      }
+
+      const photo = this.photos[index];
+
+      if (!photo) {
+        return;
+      }
+
+      // Ouvrir l'éditeur avec la photo sélectionnée
+      this.editorDialog.model = photo;
+      this.editorDialog.visible = true;
+    },
+
+    onEditorSave(data) {
+      // Cette méthode sera appelée quand l'utilisateur sauvegarde ses modifications
+      // data contient : { model, tool, cropData }
+
+      console.log("Saving editor changes:", data);
+
+      // TODO: Implémenter la sauvegarde des modifications
+      // Vous devrez appeler une API pour appliquer le crop à l'image
+      // Par exemple :
+      // this.$api.post(`photos/${data.model.UID}/crop`, data.cropData)
+      //   .then(() => {
+      //     this.$notify.success(this.$gettext('Image updated'));
+      //     // Recharger l'image mise à jour
+      //   });
+
+      this.editorDialog.visible = false;
     },
   },
 };
