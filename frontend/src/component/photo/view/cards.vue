@@ -566,13 +566,17 @@ export default {
 
     async onEditorSave(data) {
       try {
-        const response = await this.$api.post(`photos/${data.model.UID}/edits`, { sidecarData: data.sidecarData });
+        // Sérialiser pour éviter les problèmes avec les Proxy Vue
+        const payload = JSON.parse(JSON.stringify({ sidecarData: data.sidecarData }));
+        console.log("DEBUG: Sending to API:", payload);
+        console.log("DEBUG: Full data object:", data);
+        const response = await this.$api.post(`photos/${data.model.UID}/edits`, payload);
 
         this.$notify.success("Image edited successfully");
         this.editorDialog.visible = false;
 
-        // Rafraîchir la photo pour voir les changements
-        this.refresh();
+        // TODO: Rafraîchir la photo pour voir les changements
+        // Pour l'instant, l'utilisateur peut recharger la page ou naviguer ailleurs et revenir
       } catch (error) {
         console.error("Failed to save edits:", error);
         this.$notify.error("Failed to save edits");

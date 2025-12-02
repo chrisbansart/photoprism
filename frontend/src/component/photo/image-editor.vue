@@ -11,10 +11,6 @@
 
         <v-spacer></v-spacer>
       </v-toolbar>
-      <v-btn color="primary" variant="flat" @click="onSave">
-        <v-icon start>mdi-content-save</v-icon>
-        {{ $gettext("Save") }}
-      </v-btn>
       <!-- Image originale avec overlays -->
       <v-card-text class="editor-content pa-0">
         <div class="image-wrapper" ref="imageWrapper">
@@ -22,7 +18,21 @@
           <canvas v-if="isImageLoaded" ref="previewCanvas" class="preview-canvas"></canvas>
 
           <!-- Image originale (cachée, utilisée comme source) -->
-          <img v-if="imageUrl" ref="imageElement" :src="imageUrl" class="editor-image-hidden" @load="onImageLoad" />
+          <img
+            v-if="imageUrl"
+            ref="imageElement"
+            :src="imageUrl"
+            class="editor-image-hidden"
+            @load="onImageLoad"
+            @error="onImageError"
+          />
+
+          <!-- Message d'erreur si l'image ne charge pas -->
+          <div v-if="imageLoadError" class="image-error pa-4">
+            <v-alert type="error" variant="tonal">
+              {{ $gettext("Failed to load image. Please try again.") }}
+            </v-alert>
+          </div>
 
           <!-- Overlay de crop -->
           <div v-if="cropMode && isImageLoaded" class="crop-overlay" :style="cropOverlayStyle">
@@ -106,6 +116,12 @@
               {{ $gettext("Reset All") }}
             </v-btn>
 
+            <!-- Save Button -->
+            <v-btn block variant="flat" color="primary" class="mt-4" @click="onSave">
+              <v-icon start>mdi-content-save</v-icon>
+              {{ $gettext("Save") }}
+            </v-btn>
+
             <!-- Info sur les modifications -->
             <v-divider class="my-4"></v-divider>
 
@@ -167,6 +183,7 @@ export default {
     return {
       imageUrl: "",
       isImageLoaded: false,
+      imageLoadError: false,
       // État des éditions (source de vérité unique - YAML)
       edits: {
         crop: {
@@ -305,15 +322,42 @@ export default {
     document.removeEventListener("mouseup", this.onCropMouseUp);
   },
   methods: {
-    loadImage() {
+    async loadImage() {
       if (!this.model) return;
 
-      // Charger l'URL de l'image originale en haute résolution
-      this.imageUrl = this.model.thumbnailUrl("fit_2048");
-
-      // Réinitialiser
+      // Réinitialiser les états
       this.reset();
       this.isImageLoaded = false;
+      this.imageLoadError = false;
+
+      // Utiliser les thumbnails standards de PhotoPrism
+      // L'éditeur applique les transformations côté client uniquement pour la prévisualisation
+      this.imageUrl = this.model.thumbnailUrl("fit_1920");
+
+      // Charger les éditions existantes depuis le serveur
+      try {
+        const response = await this.$api.get(`photos/${this.model.UID}/edits`);
+        if (response.data && response.data.edits) {
+          // Appliquer les éditions chargées
+          this.edits = {
+            crop: response.data.edits.crop || {
+              left: 0,
+              top: 0,
+              width: 1,
+              height: 1,
+            },
+            rotation: response.data.edits.rotation || 0,
+            flip: response.data.edits.flip || {
+              horizontal: false,
+              vertical: false,
+            },
+          };
+          console.log("Loaded existing edits:", this.edits);
+        }
+      } catch (error) {
+        console.warn("No existing edits found or failed to load:", error);
+        // Garder les valeurs par défaut (reset)
+      }
     },
 
     onImageLoad() {
@@ -326,12 +370,25 @@ export default {
       };
 
       this.isImageLoaded = true;
+      this.imageLoadError = false;
 
       // Mettre à jour la prévisualisation
       this.$nextTick(() => {
         this.updatePreview();
         this.updateImageRect();
       });
+    },
+
+    onImageError(event) {
+      console.error("Failed to load image:", event);
+      this.imageLoadError = true;
+      this.isImageLoaded = false;
+
+      // Essayer avec fit_720 en dernier recours
+      if (!this.imageUrl.includes("fit_720")) {
+        console.log("Retrying with fit_720...");
+        this.imageUrl = this.model.thumbnailUrl("fit_720");
+      }
     },
 
     updateImageRect() {
@@ -736,6 +793,15 @@ export default {
 
   .editor-image-hidden {
     display: none;
+  }
+
+  .image-error {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+    max-width: 500px;
   }
 
   .crop-overlay {

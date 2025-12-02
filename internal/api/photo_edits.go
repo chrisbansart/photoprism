@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"time"
 
@@ -28,8 +30,6 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		conf := get.Config()
-
 		// Obtenir l'UID de la photo
 		uid := clean.UID(c.Param("uid"))
 		if uid == "" {
@@ -40,12 +40,22 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 		// Charger la photo depuis la base de données
 		m, err := query.PhotoByUID(uid)
 		if err != nil {
+			log.Errorf("api: photo not found for uid=%s: %v", uid, err)
 			AbortEntityNotFound(c)
 			return
 		}
 
-		// Vérifier que la photo a un fichier
-		if m.PhotoPath == "" || m.PhotoName == "" {
+		// Obtenir le fichier principal de la photo
+		primaryFile, err := m.PrimaryFile()
+		if err != nil {
+			log.Errorf("api: cannot find primary file for photo uid=%s: %v", uid, err)
+			Abort(c, http.StatusBadRequest, i18n.ErrSaveFailed)
+			return
+		}
+
+		// Vérifier que le fichier a un chemin
+		if primaryFile.FileName == "" {
+			log.Errorf("api: primary file has no filename for photo uid=%s", uid)
 			Abort(c, http.StatusBadRequest, i18n.ErrSaveFailed)
 			return
 		}
@@ -55,16 +65,41 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 			SidecarData photoprism.ImageEdits `json:"sidecarData"`
 		}
 
+		// Log du body brut pour debug
+		bodyBytes, _ := c.GetRawData()
+		log.Infof("api: raw request body: %s", string(bodyBytes))
+
+		// Réinitialiser le body pour BindJSON
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 		if err := c.BindJSON(&req); err != nil {
+			log.Errorf("api: failed to bind JSON: %v", err)
 			AbortBadRequest(c, err)
 			return
 		}
 
-		// Construire le chemin complet de la photo
-		photoPath := conf.OriginalsPath() + "/" + m.PhotoPath + "/" + m.PhotoName
+		// Log pour debugging
+		log.Infof("api: photo edits received for uid=%s", uid)
+		log.Infof("api: crop L=%.3f T=%.3f W=%.3f H=%.3f",
+			req.SidecarData.Crop.Left, req.SidecarData.Crop.Top,
+			req.SidecarData.Crop.Width, req.SidecarData.Crop.Height)
+		log.Infof("api: rotation=%d° flip H=%v V=%v",
+			req.SidecarData.Rotation,
+			req.SidecarData.Flip.Horizontal,
+			req.SidecarData.Flip.Vertical)
 
-		// Obtenir le chemin du sidecar
-		sidecarPath := photoprism.GetSidecarPath(photoPath)
+		// Obtenir la config pour les chemins
+		conf := get.Config()
+
+		// Obtenir le chemin du fichier sidecar YAML
+		sidecarPath, relPath, err := m.YamlFileName(conf.OriginalsPath(), conf.SidecarPath())
+		if err != nil {
+			log.Errorf("api: cannot get sidecar path for photo uid=%s: %v", uid, err)
+			Abort(c, http.StatusBadRequest, i18n.ErrSaveFailed)
+			return
+		}
+
+		log.Infof("api: sidecar path: %s (relative: %s)", sidecarPath, relPath)
 
 		// Sauvegarder les éditions dans le sidecar YAML
 		if err := photoprism.SaveImageEditsToSidecar(sidecarPath, &req.SidecarData); err != nil {
@@ -73,9 +108,12 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 		}
 
 		// Mettre à jour EditedAt dans la base de données
-		if err := entity.Db().Model(m).Update("EditedAt", time.Now()).Error; err != nil {
-			// on ignore l'erreur ici (warning silencieux)
+		if err := entity.Db().Model(&m).Update("EditedAt", time.Now()).Error; err != nil {
+			log.Warnf("api: failed to update EditedAt for photo uid=%s: %v", uid, err)
 		}
+
+		// Note: Les thumbnails standards ne sont pas supprimés car l'éditeur utilise
+		// un endpoint dédié (/photos/:uid/preview/:size) qui applique les éditions à la volée
 
 		// Événement & réponse
 		event.SuccessMsg(i18n.MsgChangesSaved)
@@ -100,8 +138,6 @@ func GetPhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		conf := get.Config()
-
 		uid := clean.UID(c.Param("uid"))
 		if uid == "" {
 			Abort(c, http.StatusBadRequest, i18n.ErrNotFound)
@@ -110,17 +146,21 @@ func GetPhotoEdits(router *gin.RouterGroup) {
 
 		m, err := query.PhotoByUID(uid)
 		if err != nil {
+			log.Errorf("api: photo not found for uid=%s: %v", uid, err)
 			AbortEntityNotFound(c)
 			return
 		}
 
-		if m.PhotoPath == "" || m.PhotoName == "" {
+		// Obtenir la config pour les chemins
+		conf := get.Config()
+
+		// Obtenir le chemin du fichier sidecar YAML
+		sidecarPath, _, err := m.YamlFileName(conf.OriginalsPath(), conf.SidecarPath())
+		if err != nil {
+			log.Errorf("api: cannot get sidecar path for photo uid=%s: %v", uid, err)
 			Abort(c, http.StatusBadRequest, i18n.ErrNotFound)
 			return
 		}
-
-		photoPath := conf.OriginalsPath() + "/" + m.PhotoPath + "/" + m.PhotoName
-		sidecarPath := photoprism.GetSidecarPath(photoPath)
 
 		// Charger les éditions depuis le sidecar YAML
 		edits, err := photoprism.LoadImageEditsFromSidecar(sidecarPath)
@@ -158,8 +198,6 @@ func DeletePhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		conf := get.Config()
-
 		uid := clean.UID(c.Param("uid"))
 		if uid == "" {
 			Abort(c, http.StatusBadRequest, i18n.ErrNotFound)
@@ -168,17 +206,21 @@ func DeletePhotoEdits(router *gin.RouterGroup) {
 
 		m, err := query.PhotoByUID(uid)
 		if err != nil {
+			log.Errorf("api: photo not found for uid=%s: %v", uid, err)
 			AbortEntityNotFound(c)
 			return
 		}
 
-		if m.PhotoPath == "" || m.PhotoName == "" {
+		// Obtenir la config pour les chemins
+		conf := get.Config()
+
+		// Obtenir le chemin du fichier sidecar YAML
+		sidecarPath, _, err := m.YamlFileName(conf.OriginalsPath(), conf.SidecarPath())
+		if err != nil {
+			log.Errorf("api: cannot get sidecar path for photo uid=%s: %v", uid, err)
 			Abort(c, http.StatusBadRequest, i18n.ErrDeleteFailed)
 			return
 		}
-
-		photoPath := conf.OriginalsPath() + "/" + m.PhotoPath + "/" + m.PhotoName
-		sidecarPath := photoprism.GetSidecarPath(photoPath)
 
 		// Supprimer les éditions du sidecar YAML
 		if err := photoprism.DeleteImageEditsFromSidecar(sidecarPath); err != nil {

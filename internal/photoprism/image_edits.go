@@ -2,9 +2,11 @@ package photoprism
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 
+	"github.com/disintegration/imaging"
 	"gopkg.in/yaml.v2"
 )
 
@@ -68,12 +70,12 @@ func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
 		existingData = make(map[string]interface{})
 	}
 
-	// Convertir ImageEdits en map pour fusion
-	editsMap := make(map[string]interface{})
+	// Créer la structure ImageEdits
+	imageEditsMap := make(map[string]interface{})
 
 	// Ajouter le crop seulement s'il est appliqué
 	if edits.Crop.IsCropped() {
-		editsMap["Crop"] = map[string]interface{}{
+		imageEditsMap["Crop"] = map[string]interface{}{
 			"Left":   edits.Crop.Left,
 			"Top":    edits.Crop.Top,
 			"Width":  edits.Crop.Width,
@@ -83,12 +85,12 @@ func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
 
 	// Ajouter la rotation seulement si différente de 0
 	if edits.Rotation != 0 {
-		editsMap["Rotation"] = edits.Rotation
+		imageEditsMap["Rotation"] = edits.Rotation
 	}
 
 	// Ajouter le flip seulement s'il est appliqué
 	if edits.Flip.IsFlipped() {
-		editsMap["Flip"] = map[string]interface{}{
+		imageEditsMap["Flip"] = map[string]interface{}{
 			"Horizontal": edits.Flip.Horizontal,
 			"Vertical":   edits.Flip.Vertical,
 		}
@@ -96,16 +98,14 @@ func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
 
 	// Ajouter les métadonnées
 	if edits.EditedAt != "" {
-		editsMap["ImageEditedAt"] = edits.EditedAt
+		imageEditsMap["EditedAt"] = edits.EditedAt
 	}
 	if edits.EditedBy != "" {
-		editsMap["ImageEditedBy"] = edits.EditedBy
+		imageEditsMap["EditedBy"] = edits.EditedBy
 	}
 
-	// Fusionner avec les données existantes
-	for key, value := range editsMap {
-		existingData[key] = value
-	}
+	// Placer tout sous la clé "ImageEdits"
+	existingData["ImageEdits"] = imageEditsMap
 
 	// Sérialiser en YAML
 	yamlData, err := yaml.Marshal(existingData)
@@ -174,8 +174,15 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 		},
 	}
 
+	// Chercher les données sous la clé "ImageEdits"
+	imageEditsData, hasImageEdits := yamlData["ImageEdits"].(map[interface{}]interface{})
+	if !hasImageEdits {
+		// Pas de données ImageEdits, retourner les valeurs par défaut
+		return edits, nil
+	}
+
 	// Extraire Crop
-	if cropData, ok := yamlData["Crop"].(map[interface{}]interface{}); ok {
+	if cropData, ok := imageEditsData["Crop"].(map[interface{}]interface{}); ok {
 		if left, ok := cropData["Left"].(float64); ok {
 			edits.Crop.Left = left
 		}
@@ -191,12 +198,12 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 	}
 
 	// Extraire Rotation
-	if rotation, ok := yamlData["Rotation"].(int); ok {
+	if rotation, ok := imageEditsData["Rotation"].(int); ok {
 		edits.Rotation = rotation
 	}
 
 	// Extraire Flip
-	if flipData, ok := yamlData["Flip"].(map[interface{}]interface{}); ok {
+	if flipData, ok := imageEditsData["Flip"].(map[interface{}]interface{}); ok {
 		if h, ok := flipData["Horizontal"].(bool); ok {
 			edits.Flip.Horizontal = h
 		}
@@ -206,10 +213,10 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 	}
 
 	// Extraire métadonnées
-	if editedAt, ok := yamlData["ImageEditedAt"].(string); ok {
+	if editedAt, ok := imageEditsData["EditedAt"].(string); ok {
 		edits.EditedAt = editedAt
 	}
-	if editedBy, ok := yamlData["ImageEditedBy"].(string); ok {
+	if editedBy, ok := imageEditsData["EditedBy"].(string); ok {
 		edits.EditedBy = editedBy
 	}
 
@@ -236,12 +243,8 @@ func DeleteImageEditsFromSidecar(yamlPath string) error {
 		return fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	// Supprimer les clés d'édition
-	delete(yamlData, "Crop")
-	delete(yamlData, "Rotation")
-	delete(yamlData, "Flip")
-	delete(yamlData, "ImageEditedAt")
-	delete(yamlData, "ImageEditedBy")
+	// Supprimer la section ImageEdits complète
+	delete(yamlData, "ImageEdits")
 
 	// Si le fichier est maintenant vide, le supprimer
 	if len(yamlData) == 0 {
@@ -261,9 +264,72 @@ func DeleteImageEditsFromSidecar(yamlPath string) error {
 	return nil
 }
 
-// GetSidecarPath retourne le chemin du fichier sidecar YAML pour une photo
-func GetSidecarPath(photoPath string) string {
-	// Remplacer l'extension par .yml
-	ext := filepath.Ext(photoPath)
-	return photoPath[:len(photoPath)-len(ext)] + ".yml"
+// ApplyImageEdits applique les transformations d'édition à une image
+func ApplyImageEdits(img image.Image, edits *ImageEdits) image.Image {
+	if edits == nil {
+		return img
+	}
+
+	// 1. Appliquer le crop en premier (coordonnées relatives 0-1)
+	if edits.Crop.IsCropped() {
+		bounds := img.Bounds()
+		width := bounds.Dx()
+		height := bounds.Dy()
+
+		// Convertir les coordonnées relatives en pixels
+		x0 := int(edits.Crop.Left * float64(width))
+		y0 := int(edits.Crop.Top * float64(height))
+		x1 := int((edits.Crop.Left + edits.Crop.Width) * float64(width))
+		y1 := int((edits.Crop.Top + edits.Crop.Height) * float64(height))
+
+		// S'assurer que les coordonnées sont dans les limites
+		if x0 < 0 {
+			x0 = 0
+		}
+		if y0 < 0 {
+			y0 = 0
+		}
+		if x1 > width {
+			x1 = width
+		}
+		if y1 > height {
+			y1 = height
+		}
+
+		// Appliquer le crop
+		cropRect := image.Rect(x0, y0, x1, y1)
+		img = imaging.Crop(img, cropRect)
+	}
+
+	// 2. Appliquer la rotation (en degrés, sens horaire)
+	if edits.Rotation != 0 {
+		// Normaliser la rotation entre 0 et 360
+		rotation := edits.Rotation % 360
+		if rotation < 0 {
+			rotation += 360
+		}
+
+		switch rotation {
+		case 90:
+			img = imaging.Rotate90(img)
+		case 180:
+			img = imaging.Rotate180(img)
+		case 270:
+			img = imaging.Rotate270(img)
+		default:
+			// Pour les rotations arbitraires, utiliser Rotate avec interpolation
+			img = imaging.Rotate(img, float64(-rotation), image.Black)
+		}
+	}
+
+	// 3. Appliquer les flips (après rotation)
+	if edits.Flip.Horizontal {
+		img = imaging.FlipH(img)
+	}
+	if edits.Flip.Vertical {
+		img = imaging.FlipV(img)
+	}
+
+	return img
 }
+
