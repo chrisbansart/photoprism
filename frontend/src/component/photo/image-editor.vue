@@ -14,8 +14,13 @@
       <!-- Image originale avec overlays -->
       <v-card-text class="editor-content pa-0">
         <div class="image-wrapper" ref="imageWrapper">
+          <!-- Loading spinner -->
+          <div v-if="!previewReady && !imageLoadError" class="loading-spinner">
+            <v-progress-circular indeterminate color="primary" size="64"></v-progress-circular>
+          </div>
+
           <!-- Canvas de prévisualisation -->
-          <canvas v-if="isImageLoaded" ref="previewCanvas" class="preview-canvas"></canvas>
+          <canvas v-if="isImageLoaded" ref="previewCanvas" class="preview-canvas" :style="{ opacity: previewReady ? 1 : 0 }"></canvas>
 
           <!-- Image originale (cachée, utilisée comme source) -->
           <img v-if="imageUrl" ref="imageElement" :src="imageUrl" class="editor-image-hidden" @load="onImageLoad" @error="onImageError" />
@@ -46,109 +51,137 @@
         <v-card flat>
           <v-card-title>{{ $gettext("Edit Options") }}</v-card-title>
 
-          <v-card-text>
-            <!-- Bouton Crop -->
-            <v-btn block :color="cropMode ? 'primary' : 'default'" :variant="cropMode ? 'flat' : 'outlined'" class="mb-4" @click="toggleCropMode">
-              <v-icon start>mdi-crop</v-icon>
-              {{ cropMode ? $gettext("Cropping...") : $gettext("Crop Image") }}
-            </v-btn>
-
-            <!-- Boutons Annuler / Valider (visibles seulement en mode crop) -->
-            <v-expand-transition>
-              <div v-if="cropMode" class="mb-4">
-                <v-btn-group divided density="compact" variant="outlined" class="d-flex">
-                  <v-btn @click="cancelCrop" color="error" style="flex: 1">
-                    <v-icon>mdi-close</v-icon>
-                    <span class="ml-1">{{ $gettext("Cancel") }}</span>
+          <v-card-text class="d-flex flex-column" style="height: calc(100vh - 64px)">
+            <div style="flex: 1; overflow-y: auto">
+              <!-- Crop avec bouton X pour réinitialiser -->
+              <div class="mb-4">
+                <div class="d-flex align-center mb-2">
+                  <div class="text-subtitle-2 flex-grow-1">{{ $gettext("Crop") }}</div>
+                  <v-btn v-if="hasCrop" icon size="x-small" variant="text" color="error" :title="$gettext('Reset crop')" @click="resetCrop">
+                    <v-icon size="small">mdi-close</v-icon>
                   </v-btn>
-                  <v-btn @click="applyCrop" color="success" style="flex: 1">
-                    <v-icon>mdi-check</v-icon>
-                    <span class="ml-1">{{ $gettext("Apply") }}</span>
+                </div>
+                <v-btn block :color="cropMode ? 'primary' : 'default'" :variant="cropMode ? 'flat' : 'outlined'" @click="toggleCropMode">
+                  <v-icon start>mdi-crop</v-icon>
+                  {{ cropMode ? $gettext("Cropping...") : $gettext("Crop Image") }}
+                </v-btn>
+
+                <!-- Boutons Annuler / Valider (visibles seulement en mode crop) -->
+                <v-expand-transition>
+                  <div v-if="cropMode" class="mt-2">
+                    <v-btn-group divided density="compact" variant="outlined" class="d-flex">
+                      <v-btn color="error" style="flex: 1" @click="cancelCrop">
+                        <v-icon>mdi-close</v-icon>
+                        <span class="ml-1">{{ $gettext("Cancel") }}</span>
+                      </v-btn>
+                      <v-btn color="success" style="flex: 1" @click="applyCrop">
+                        <v-icon>mdi-check</v-icon>
+                        <span class="ml-1">{{ $gettext("Apply") }}</span>
+                      </v-btn>
+                    </v-btn-group>
+                  </div>
+                </v-expand-transition>
+              </div>
+
+              <v-divider class="my-4"></v-divider>
+
+              <!-- Rotation avec bouton X pour réinitialiser -->
+              <div class="mb-4">
+                <div class="d-flex align-center mb-2">
+                  <div class="text-subtitle-2 flex-grow-1">{{ $gettext("Rotation") }}</div>
+                  <v-btn v-if="hasRotation" icon size="x-small" variant="text" color="error" :title="$gettext('Reset rotation')" @click="resetRotation">
+                    <v-icon size="small">mdi-close</v-icon>
+                  </v-btn>
+                </div>
+                <v-btn-group divided density="compact" variant="outlined" class="d-flex">
+                  <v-btn :disabled="!isImageLoaded" style="flex: 1" @click="rotate(-90)">
+                    <v-icon>mdi-rotate-left</v-icon>
+                    <span class="ml-1">-90°</span>
+                  </v-btn>
+                  <v-btn :disabled="!isImageLoaded" style="flex: 1" @click="rotate(90)">
+                    <v-icon>mdi-rotate-right</v-icon>
+                    <span class="ml-1">+90°</span>
                   </v-btn>
                 </v-btn-group>
               </div>
-            </v-expand-transition>
 
-            <v-divider class="my-4"></v-divider>
+              <!-- Flip avec bouton X pour réinitialiser -->
+              <div class="mb-4">
+                <div class="d-flex align-center mb-2">
+                  <div class="text-subtitle-2 flex-grow-1">{{ $gettext("Flip") }}</div>
+                  <v-btn v-if="hasFlip" icon size="x-small" variant="text" color="error" :title="$gettext('Reset flip')" @click="resetFlip">
+                    <v-icon size="small">mdi-close</v-icon>
+                  </v-btn>
+                </div>
+                <v-btn-group divided density="compact" variant="outlined" class="d-flex">
+                  <v-btn :disabled="!isImageLoaded" style="flex: 1" @click="flip('horizontal')">
+                    <v-icon>mdi-flip-horizontal</v-icon>
+                    <span class="ml-1">{{ $gettext("Horizontal") }}</span>
+                  </v-btn>
+                  <v-btn :disabled="!isImageLoaded" style="flex: 1" @click="flip('vertical')">
+                    <v-icon>mdi-flip-vertical</v-icon>
+                    <span class="ml-1">{{ $gettext("Vertical") }}</span>
+                  </v-btn>
+                </v-btn-group>
+              </div>
 
-            <!-- Rotation -->
-            <div class="mb-4">
-              <div class="text-subtitle-2 mb-2">{{ $gettext("Rotation") }}</div>
-              <v-btn-group divided density="compact" variant="outlined" class="d-flex">
-                <v-btn @click="rotate(-90)" :disabled="!isImageLoaded" style="flex: 1">
-                  <v-icon>mdi-rotate-left</v-icon>
-                  <span class="ml-1">-90°</span>
-                </v-btn>
-                <v-btn @click="rotate(90)" :disabled="!isImageLoaded" style="flex: 1">
-                  <v-icon>mdi-rotate-right</v-icon>
-                  <span class="ml-1">+90°</span>
-                </v-btn>
-              </v-btn-group>
+              <!-- Reset All -->
+              <v-divider class="my-4"></v-divider>
+
+              <v-btn block variant="outlined" color="error" @click="resetToOriginal">
+                <v-icon start>mdi-close</v-icon>
+                {{ $gettext("Return to original") }}
+              </v-btn>
+
+              <!-- Info sur les modifications -->
+              <v-divider class="my-4"></v-divider>
+
+              <div class="text-caption text-medium-emphasis">
+                <div class="mb-2">
+                  <strong>{{ $gettext("Crop:") }}</strong>
+                  {{ cropInfo }}
+                </div>
+                <div class="mb-2">
+                  <strong>{{ $gettext("Rotation:") }}</strong>
+                  {{ edits.rotation }}°
+                </div>
+                <div class="mb-2">
+                  <strong>{{ $gettext("Flip:") }}</strong>
+                  {{ flipInfo }}
+                </div>
+              </div>
+
+              <!-- Info sur le sidecar -->
+              <v-alert type="info" variant="tonal" density="compact" class="mt-4">
+                {{ $gettext("Changes will be saved in a YAML sidecar file without modifying the original image.") }}
+              </v-alert>
+
+              <!-- Debug YAML en temps réel -->
+              <v-divider class="my-4"></v-divider>
+
+              <div class="yaml-debug">
+                <div class="d-flex align-center mb-2">
+                  <span class="text-subtitle-2 flex-grow-1">{{ $gettext("YAML Preview") }}</span>
+                  <v-btn icon size="x-small" variant="text" :title="$gettext('Copy to clipboard')" @click="copyYamlToClipboard">
+                    <v-icon size="small">mdi-content-copy</v-icon>
+                  </v-btn>
+                </div>
+                <pre class="yaml-preview">{{ yamlPreview }}</pre>
+              </div>
             </div>
 
-            <!-- Flip -->
-            <div class="mb-4">
-              <div class="text-subtitle-2 mb-2">{{ $gettext("Flip") }}</div>
-              <v-btn-group divided density="compact" variant="outlined" class="d-flex">
-                <v-btn @click="flip('horizontal')" :disabled="!isImageLoaded" style="flex: 1">
-                  <v-icon>mdi-flip-horizontal</v-icon>
-                  <span class="ml-1">{{ $gettext("Horizontal") }}</span>
+            <!-- Boutons Save et Cancel en bas à droite -->
+            <div class="editor-actions mt-4 pt-4" style="border-top: 1px solid rgba(255, 255, 255, 0.12)">
+              <div class="d-flex" style="gap: 12px">
+                <v-btn variant="outlined" color="error" style="flex: 1" @click="onCancel">
+                  <v-icon start>mdi-close</v-icon>
+                  {{ $gettext("Cancel") }}
                 </v-btn>
-                <v-btn @click="flip('vertical')" :disabled="!isImageLoaded" style="flex: 1">
-                  <v-icon>mdi-flip-vertical</v-icon>
-                  <span class="ml-1">{{ $gettext("Vertical") }}</span>
-                </v-btn>
-              </v-btn-group>
-            </div>
-
-            <!-- Reset -->
-            <v-divider class="my-4"></v-divider>
-
-            <v-btn block variant="outlined" color="warning" @click="reset">
-              <v-icon start>mdi-refresh</v-icon>
-              {{ $gettext("Reset All") }}
-            </v-btn>
-
-            <!-- Save Button -->
-            <v-btn block variant="flat" color="primary" class="mt-4" @click="onSave">
-              <v-icon start>mdi-content-save</v-icon>
-              {{ $gettext("Save") }}
-            </v-btn>
-
-            <!-- Info sur les modifications -->
-            <v-divider class="my-4"></v-divider>
-
-            <div class="text-caption text-medium-emphasis">
-              <div class="mb-2">
-                <strong>{{ $gettext("Crop:") }}</strong>
-                {{ cropInfo }}
-              </div>
-              <div class="mb-2">
-                <strong>{{ $gettext("Rotation:") }}</strong>
-                {{ edits.rotation }}°
-              </div>
-              <div class="mb-2">
-                <strong>{{ $gettext("Flip:") }}</strong>
-                {{ flipInfo }}
-              </div>
-            </div>
-
-            <!-- Info sur le sidecar -->
-            <v-alert type="info" variant="tonal" density="compact" class="mt-4">
-              {{ $gettext("Changes will be saved in a YAML sidecar file without modifying the original image.") }}
-            </v-alert>
-
-            <!-- Debug YAML en temps réel -->
-            <v-divider class="my-4"></v-divider>
-
-            <div class="yaml-debug">
-              <div class="d-flex align-center mb-2">
-                <span class="text-subtitle-2 flex-grow-1">{{ $gettext("YAML Preview") }}</span>
-                <v-btn icon size="x-small" variant="text" @click="copyYamlToClipboard" :title="$gettext('Copy to clipboard')">
-                  <v-icon size="small">mdi-content-copy</v-icon>
+                <v-btn variant="flat" color="primary" style="flex: 1" @click="onSave">
+                  <v-icon start>mdi-content-save</v-icon>
+                  {{ $gettext("Save") }}
                 </v-btn>
               </div>
-              <pre class="yaml-preview">{{ yamlPreview }}</pre>
             </div>
           </v-card-text>
         </v-card>
@@ -177,6 +210,7 @@ export default {
       imageUrl: "",
       isImageLoaded: false,
       imageLoadError: false,
+      previewReady: false,
       // Edit state (single source of truth - YAML)
       edits: {
         crop: {
@@ -191,6 +225,8 @@ export default {
           vertical: false,
         },
       },
+      // Original edits loaded from backend (for cancel functionality)
+      originalEdits: null,
       // UI state for crop
       cropMode: false,
       cropRect: {
@@ -237,6 +273,15 @@ export default {
       const w = Math.round(this.edits.crop.width * 100);
       const h = Math.round(this.edits.crop.height * 100);
       return `${w}% × ${h}%`;
+    },
+    hasCrop() {
+      return this.edits.crop.width !== 1 || this.edits.crop.height !== 1;
+    },
+    hasRotation() {
+      return this.edits.rotation !== 0;
+    },
+    hasFlip() {
+      return this.edits.flip.horizontal || this.edits.flip.vertical;
     },
     flipInfo() {
       const flips = [];
@@ -319,9 +364,24 @@ export default {
       if (!this.model) return;
 
       // Reset states
-      this.reset();
+      this.edits = {
+        crop: {
+          left: 0,
+          top: 0,
+          width: 1,
+          height: 1,
+        },
+        rotation: 0,
+        flip: {
+          horizontal: false,
+          vertical: false,
+        },
+      };
+      this.cropMode = false;
+      this.cropRect = { x: 0, y: 0, width: 0, height: 0 };
       this.isImageLoaded = false;
       this.imageLoadError = false;
+      this.previewReady = false;
 
       // Use original image for maximum quality editing
       // The editor applies transformations client-side on the canvas
@@ -345,11 +405,17 @@ export default {
               vertical: false,
             },
           };
+          // Save original edits for cancel functionality
+          this.originalEdits = JSON.parse(JSON.stringify(this.edits));
           console.log("Loaded existing edits:", this.edits);
+        } else {
+          // No edits found, save default as original
+          this.originalEdits = JSON.parse(JSON.stringify(this.edits));
         }
       } catch (error) {
         console.warn("No existing edits found or failed to load:", error);
-        // Keep default values (reset)
+        // Keep default values (reset) and save as original
+        this.originalEdits = JSON.parse(JSON.stringify(this.edits));
       }
     },
 
@@ -365,10 +431,17 @@ export default {
       this.isImageLoaded = true;
       this.imageLoadError = false;
 
-      // Update preview
+      // Update preview and show it when ready
       this.$nextTick(() => {
         this.updatePreview();
         this.updateImageRect();
+
+        // Wait a bit for the canvas to render before showing
+        this.$nextTick(() => {
+          setTimeout(() => {
+            this.previewReady = true;
+          }, 50);
+        });
       });
     },
 
@@ -509,7 +582,30 @@ export default {
       }
     },
 
-    reset() {
+    resetCrop() {
+      this.edits.crop = {
+        left: 0,
+        top: 0,
+        width: 1,
+        height: 1,
+      };
+      this.$notify.info(this.$gettext("Crop reset"));
+    },
+
+    resetRotation() {
+      this.edits.rotation = 0;
+      this.$notify.info(this.$gettext("Rotation reset"));
+    },
+
+    resetFlip() {
+      this.edits.flip = {
+        horizontal: false,
+        vertical: false,
+      };
+      this.$notify.info(this.$gettext("Flip reset"));
+    },
+
+    resetToOriginal() {
       this.edits = {
         crop: {
           left: 0,
@@ -526,7 +622,12 @@ export default {
       this.cropMode = false;
       this.cropRect = { x: 0, y: 0, width: 0, height: 0 };
 
-      this.$notify.info(this.$gettext("All changes reset"));
+      this.$notify.info(this.$gettext("All changes reset to original"));
+    },
+
+    onCancel() {
+      // Simply close the editor without saving
+      this.onClose();
     },
 
     // Gestion du drag/resize du crop
@@ -781,10 +882,19 @@ export default {
     position: relative;
   }
 
+  .loading-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+  }
+
   .preview-canvas {
     display: block;
     max-width: 100%;
     max-height: 100%;
+    transition: opacity 0.3s ease-in-out;
   }
 
   .editor-image-hidden {
