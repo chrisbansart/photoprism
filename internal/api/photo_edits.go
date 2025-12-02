@@ -18,26 +18,26 @@ import (
 	"github.com/photoprism/photoprism/pkg/i18n"
 )
 
-// SavePhotoEdits sauvegarde les modifications d'image dans le fichier sidecar YAML.
+// SavePhotoEdits saves image modifications to the YAML sidecar file.
 //
 // POST /api/v1/photos/:uid/edits
 func SavePhotoEdits(router *gin.RouterGroup) {
 	router.POST("/photos/:uid/edits", func(c *gin.Context) {
-		// Auth standard PhotoPrism : Auth(...) renvoie *entity.Session ou nil.
+		// Standard PhotoPrism auth: Auth(...) returns *entity.Session or nil.
 		s := Auth(c, acl.ResourcePhotos, acl.ActionUpdate)
 		if s == nil {
 			AbortUnauthorized(c)
 			return
 		}
 
-		// Obtenir l'UID de la photo
+		// Get photo UID
 		uid := clean.UID(c.Param("uid"))
 		if uid == "" {
 			Abort(c, http.StatusBadRequest, i18n.ErrNotFound)
 			return
 		}
 
-		// Charger la photo depuis la base de données
+		// Load photo from database
 		m, err := query.PhotoByUID(uid)
 		if err != nil {
 			log.Errorf("api: photo not found for uid=%s: %v", uid, err)
@@ -45,7 +45,7 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		// Obtenir le fichier principal de la photo
+		// Get primary file of the photo
 		primaryFile, err := m.PrimaryFile()
 		if err != nil {
 			log.Errorf("api: cannot find primary file for photo uid=%s: %v", uid, err)
@@ -53,23 +53,23 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		// Vérifier que le fichier a un chemin
+		// Verify file has a path
 		if primaryFile.FileName == "" {
 			log.Errorf("api: primary file has no filename for photo uid=%s", uid)
 			Abort(c, http.StatusBadRequest, i18n.ErrSaveFailed)
 			return
 		}
 
-		// Body JSON
+		// JSON body
 		var req struct {
 			SidecarData photoprism.ImageEdits `json:"sidecarData"`
 		}
 
-		// Log du body brut pour debug
+		// Log raw body for debugging
 		bodyBytes, _ := c.GetRawData()
 		log.Infof("api: raw request body: %s", string(bodyBytes))
 
-		// Réinitialiser le body pour BindJSON
+		// Reset body for BindJSON
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 		if err := c.BindJSON(&req); err != nil {
@@ -78,7 +78,7 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		// Log pour debugging
+		// Log for debugging
 		log.Infof("api: photo edits received for uid=%s", uid)
 		log.Infof("api: crop L=%.3f T=%.3f W=%.3f H=%.3f",
 			req.SidecarData.Crop.Left, req.SidecarData.Crop.Top,
@@ -88,10 +88,10 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 			req.SidecarData.Flip.Horizontal,
 			req.SidecarData.Flip.Vertical)
 
-		// Obtenir la config pour les chemins
+		// Get config for paths
 		conf := get.Config()
 
-		// Obtenir le chemin du fichier sidecar YAML
+		// Get sidecar YAML file path
 		sidecarPath, relPath, err := m.YamlFileName(conf.OriginalsPath(), conf.SidecarPath())
 		if err != nil {
 			log.Errorf("api: cannot get sidecar path for photo uid=%s: %v", uid, err)
@@ -101,21 +101,21 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 
 		log.Infof("api: sidecar path: %s (relative: %s)", sidecarPath, relPath)
 
-		// Sauvegarder les éditions dans le sidecar YAML
+		// Save edits to sidecar YAML
 		if err := photoprism.SaveImageEditsToSidecar(sidecarPath, &req.SidecarData); err != nil {
 			AbortSaveFailed(c)
 			return
 		}
 
-		// Mettre à jour EditedAt dans la base de données
+		// Update EditedAt in database
 		if err := entity.Db().Model(&m).Update("EditedAt", time.Now()).Error; err != nil {
 			log.Warnf("api: failed to update EditedAt for photo uid=%s: %v", uid, err)
 		}
 
-		// Note: Les thumbnails standards ne sont pas supprimés car l'éditeur utilise
-		// un endpoint dédié (/photos/:uid/preview/:size) qui applique les éditions à la volée
+		// Note: Standard thumbnails are not deleted because the editor uses
+		// a dedicated endpoint (/photos/:uid/preview/:size) that applies edits on-the-fly
 
-		// Événement & réponse
+		// Event & response
 		event.SuccessMsg(i18n.MsgChangesSaved)
 		PublishPhotoEvent(StatusUpdated, uid, c)
 
@@ -127,7 +127,7 @@ func SavePhotoEdits(router *gin.RouterGroup) {
 	})
 }
 
-// GetPhotoEdits récupère les modifications d'image depuis le fichier sidecar YAML.
+// GetPhotoEdits retrieves image modifications from the YAML sidecar file.
 //
 // GET /api/v1/photos/:uid/edits
 func GetPhotoEdits(router *gin.RouterGroup) {
@@ -151,10 +151,10 @@ func GetPhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		// Obtenir la config pour les chemins
+		// Get config for paths
 		conf := get.Config()
 
-		// Obtenir le chemin du fichier sidecar YAML
+		// Get sidecar YAML file path
 		sidecarPath, _, err := m.YamlFileName(conf.OriginalsPath(), conf.SidecarPath())
 		if err != nil {
 			log.Errorf("api: cannot get sidecar path for photo uid=%s: %v", uid, err)
@@ -162,10 +162,10 @@ func GetPhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		// Charger les éditions depuis le sidecar YAML
+		// Load edits from sidecar YAML
 		edits, err := photoprism.LoadImageEditsFromSidecar(sidecarPath)
 		if err != nil {
-			// Retourner des éditions par défaut en cas d'erreur
+			// Return default edits in case of error
 			edits = &photoprism.ImageEdits{
 				Crop: photoprism.CropEdits{
 					Left:   0,
@@ -187,7 +187,7 @@ func GetPhotoEdits(router *gin.RouterGroup) {
 	})
 }
 
-// DeletePhotoEdits supprime les modifications d'image du fichier sidecar YAML.
+// DeletePhotoEdits deletes image modifications from the YAML sidecar file.
 //
 // DELETE /api/v1/photos/:uid/edits
 func DeletePhotoEdits(router *gin.RouterGroup) {
@@ -211,10 +211,10 @@ func DeletePhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		// Obtenir la config pour les chemins
+		// Get config for paths
 		conf := get.Config()
 
-		// Obtenir le chemin du fichier sidecar YAML
+		// Get sidecar YAML file path
 		sidecarPath, _, err := m.YamlFileName(conf.OriginalsPath(), conf.SidecarPath())
 		if err != nil {
 			log.Errorf("api: cannot get sidecar path for photo uid=%s: %v", uid, err)
@@ -222,15 +222,15 @@ func DeletePhotoEdits(router *gin.RouterGroup) {
 			return
 		}
 
-		// Supprimer les éditions du sidecar YAML
+		// Delete edits from sidecar YAML
 		if err := photoprism.DeleteImageEditsFromSidecar(sidecarPath); err != nil {
 			AbortDeleteFailed(c)
 			return
 		}
 
-		// Mettre à jour EditedAt (on considère que la photo est "modifiée")
+		// Update EditedAt (we consider the photo as "modified")
 		if err := entity.Db().Model(m).Update("EditedAt", time.Now()).Error; err != nil {
-			// warning silencieux
+			// silent warning
 		}
 
 		event.SuccessMsg(i18n.MsgChangesSaved)

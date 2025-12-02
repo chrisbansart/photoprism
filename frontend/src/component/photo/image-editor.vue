@@ -18,14 +18,7 @@
           <canvas v-if="isImageLoaded" ref="previewCanvas" class="preview-canvas"></canvas>
 
           <!-- Image originale (cachée, utilisée comme source) -->
-          <img
-            v-if="imageUrl"
-            ref="imageElement"
-            :src="imageUrl"
-            class="editor-image-hidden"
-            @load="onImageLoad"
-            @error="onImageError"
-          />
+          <img v-if="imageUrl" ref="imageElement" :src="imageUrl" class="editor-image-hidden" @load="onImageLoad" @error="onImageError" />
 
           <!-- Message d'erreur si l'image ne charge pas -->
           <div v-if="imageLoadError" class="image-error pa-4">
@@ -184,7 +177,7 @@ export default {
       imageUrl: "",
       isImageLoaded: false,
       imageLoadError: false,
-      // État des éditions (source de vérité unique - YAML)
+      // Edit state (single source of truth - YAML)
       edits: {
         crop: {
           left: 0,
@@ -198,7 +191,7 @@ export default {
           vertical: false,
         },
       },
-      // UI state pour le crop
+      // UI state for crop
       cropMode: false,
       cropRect: {
         x: 0,
@@ -206,7 +199,7 @@ export default {
         width: 0,
         height: 0,
       },
-      savedCrop: null, // Sauvegarde du crop avant d'entrer en mode crop
+      savedCrop: null, // Backup of crop before entering crop mode
       cropDragging: false,
       cropResizing: false,
       cropResizeHandle: null,
@@ -325,20 +318,20 @@ export default {
     async loadImage() {
       if (!this.model) return;
 
-      // Réinitialiser les états
+      // Reset states
       this.reset();
       this.isImageLoaded = false;
       this.imageLoadError = false;
 
-      // Utiliser les thumbnails standards de PhotoPrism
-      // L'éditeur applique les transformations côté client uniquement pour la prévisualisation
-      this.imageUrl = this.model.thumbnailUrl("fit_1920");
+      // Use original image for maximum quality editing
+      // The editor applies transformations client-side on the canvas
+      this.imageUrl = this.model.getDownloadUrl();
 
-      // Charger les éditions existantes depuis le serveur
+      // Load existing edits from server
       try {
         const response = await this.$api.get(`photos/${this.model.UID}/edits`);
         if (response.data && response.data.edits) {
-          // Appliquer les éditions chargées
+          // Apply loaded edits
           this.edits = {
             crop: response.data.edits.crop || {
               left: 0,
@@ -356,7 +349,7 @@ export default {
         }
       } catch (error) {
         console.warn("No existing edits found or failed to load:", error);
-        // Garder les valeurs par défaut (reset)
+        // Keep default values (reset)
       }
     },
 
@@ -372,7 +365,7 @@ export default {
       this.isImageLoaded = true;
       this.imageLoadError = false;
 
-      // Mettre à jour la prévisualisation
+      // Update preview
       this.$nextTick(() => {
         this.updatePreview();
         this.updateImageRect();
@@ -384,9 +377,12 @@ export default {
       this.imageLoadError = true;
       this.isImageLoaded = false;
 
-      // Essayer avec fit_720 en dernier recours
-      if (!this.imageUrl.includes("fit_720")) {
-        console.log("Retrying with fit_720...");
+      // In case of original load error, try with HD thumbnail
+      if (!this.imageUrl.includes("thumbnailUrl")) {
+        console.log("Retrying with HD thumbnail...");
+        this.imageUrl = this.model.thumbnailUrl("fit_1920");
+      } else if (!this.imageUrl.includes("fit_720")) {
+        console.log("Retrying with standard thumbnail...");
         this.imageUrl = this.model.thumbnailUrl("fit_720");
       }
     },
@@ -411,13 +407,13 @@ export default {
       this.cropMode = !this.cropMode;
 
       if (this.cropMode) {
-        // En mode crop, on doit temporairement afficher l'image complète
-        // et positionner le rectangle selon le crop actuel du YAML
+        // In crop mode, temporarily display the full image
+        // and position the rectangle according to the current YAML crop
 
-        // Sauvegarder le crop actuel pour pouvoir le restaurer si on annule
+        // Save current crop to restore if cancelled
         this.savedCrop = { ...this.edits.crop };
 
-        // Temporairement réinitialiser le crop pour afficher l'image complète
+        // Temporarily reset crop to display full image
         this.edits.crop = {
           left: 0,
           top: 0,
@@ -425,17 +421,17 @@ export default {
           height: 1,
         };
 
-        // Forcer la mise à jour du canvas
+        // Force canvas update
         this.$nextTick(() => {
           this.updatePreview();
 
-          // Attendre que le canvas soit redimensionné
+          // Wait for canvas to be resized
           this.$nextTick(() => {
             this.updateImageRect();
 
-            // Positionner le rectangle selon le crop sauvegardé
+            // Position rectangle according to saved crop
             if (this.savedCrop.width < 1 || this.savedCrop.height < 1) {
-              // Un crop existe, le restaurer comme position du rectangle
+              // A crop exists, restore it as rectangle position
               this.cropRect = {
                 x: this.savedCrop.left * this.imageRect.width,
                 y: this.savedCrop.top * this.imageRect.height,
@@ -443,7 +439,7 @@ export default {
                 height: this.savedCrop.height * this.imageRect.height,
               };
             } else {
-              // Pas de crop, initialiser à 80% centré
+              // No crop, initialize to 80% centered
               const margin = 0.1;
               this.cropRect = {
                 x: this.imageRect.width * margin,
@@ -458,7 +454,7 @@ export default {
     },
 
     cancelCrop() {
-      // Restaurer le crop sauvegardé
+      // Restore saved crop
       if (this.savedCrop) {
         this.edits.crop = { ...this.savedCrop };
         this.savedCrop = null;
@@ -466,7 +462,7 @@ export default {
 
       this.cropMode = false;
 
-      // Rafraîchir l'affichage avec le crop original
+      // Refresh display with original crop
       this.$nextTick(() => {
         this.updatePreview();
       });
@@ -478,7 +474,7 @@ export default {
         return;
       }
 
-      // Mettre à jour le YAML (source de vérité)
+      // Update YAML (source of truth)
       this.edits.crop = {
         left: this.cropRect.x / this.imageRect.width,
         top: this.cropRect.y / this.imageRect.height,
@@ -486,13 +482,13 @@ export default {
         height: this.cropRect.height / this.imageRect.height,
       };
 
-      // Nettoyer la sauvegarde
+      // Clean up backup
       this.savedCrop = null;
 
-      // Sortir du mode crop
+      // Exit crop mode
       this.cropMode = false;
 
-      // Forcer la mise à jour de la prévisualisation
+      // Force preview update
       this.$nextTick(() => {
         this.updatePreview();
       });
@@ -646,13 +642,13 @@ export default {
       try {
         const ctx = canvas.getContext("2d");
 
-        // Calculer la zone source basée sur l'image ORIGINALE entière
+        // Calculate source area based on full ORIGINAL image
         let sourceX = this.edits.crop.left * img.naturalWidth;
         let sourceY = this.edits.crop.top * img.naturalHeight;
         let sourceWidth = this.edits.crop.width * img.naturalWidth;
         let sourceHeight = this.edits.crop.height * img.naturalHeight;
 
-        // Calculer les dimensions après rotation
+        // Calculate dimensions after rotation
         let displayWidth = sourceWidth;
         let displayHeight = sourceHeight;
 
@@ -660,32 +656,32 @@ export default {
           [displayWidth, displayHeight] = [displayHeight, displayWidth];
         }
 
-        // Calculer l'échelle pour s'adapter au wrapper
+        // Calculate scale to fit wrapper
         const wrapper = this.$refs.imageWrapper;
         const maxWidth = wrapper.clientWidth - 40;
         const maxHeight = wrapper.clientHeight - 40;
         const scale = Math.min(1, maxWidth / displayWidth, maxHeight / displayHeight);
 
-        // Ajuster les dimensions du canvas
+        // Adjust canvas dimensions
         canvas.width = displayWidth * scale;
         canvas.height = displayHeight * scale;
 
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Sauvegarder le contexte
+        // Save context
         ctx.save();
 
-        // Se déplacer au centre
+        // Move to center
         ctx.translate(canvas.width / 2, canvas.height / 2);
 
-        // Appliquer la rotation
+        // Apply rotation
         ctx.rotate((this.edits.rotation * Math.PI) / 180);
 
-        // Appliquer le flip
+        // Apply flip
         ctx.scale(this.edits.flip.horizontal ? -1 : 1, this.edits.flip.vertical ? -1 : 1);
 
-        // Dessiner la portion croppée de l'image originale
+        // Draw the cropped portion of the original image
         const drawWidth = sourceWidth * scale;
         const drawHeight = sourceHeight * scale;
 

@@ -20,9 +20,7 @@
       </v-alert>
     </div>
     <div v-else class="v-row search-results photo-results cards-view" :class="{ 'select-results': selectMode }">
-      <h1>CARDS</h1>
       <div v-for="(m, index) in photos" :key="m.ID" ref="items" :data-index="index" class="v-col-12 v-col-sm-6 v-col-md-4 v-col-lg-3 v-col-xl-2">
-        <h1>CARD</h1>
         <div v-if="index < firstVisibleElementIndex || index > lastVisibleElementIndex" :data-id="m.ID" :data-uid="m.UID" class="media result placeholder">
           <div class="preview" />
 
@@ -81,8 +79,6 @@
           </div>
         </div>
         <div v-else :data-id="m.ID" :data-uid="m.UID" class="media result" :class="m.classes()" @contextmenu.stop="onContextMenu($event, index)">
-          <h1>cardTitle</h1>
-
           <div
             :title="m.Title"
             :style="`background-image: url(${m.thumbnailUrl('tile_500')})`"
@@ -573,7 +569,8 @@ export default {
         const response = await this.$api.post(`photos/${data.model.UID}/edits`, payload);
 
         this.$notify.success("Image edited successfully");
-        this.editorDialog.visible = false;
+        // Ne pas fermer l'éditeur, permettre à l'utilisateur de continuer les modifications
+        // this.editorDialog.visible = false;
 
         // TODO: Rafraîchir la photo pour voir les changements
         // Pour l'instant, l'utilisateur peut recharger la page ou naviguer ailleurs et revenir

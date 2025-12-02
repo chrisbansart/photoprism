@@ -1,7 +1,5 @@
 <template>
   <div ref="page" tabindex="-1" class="p-page p-page-albums not-selectable" :class="$config.aclClasses('albums')">
-    <h1>TOOTO</h1>
-
     <v-form ref="form" validate-on="invalid-input" class="p-albums-search p-page__navigation" @submit.prevent="updateQuery()">
       <v-toolbar flat :density="$vuetify.display.smAndDown ? 'compact' : 'default'" color="secondary" class="page-toolbar">
         <v-text-field

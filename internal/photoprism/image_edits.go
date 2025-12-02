@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// ImageEdits représente les modifications d'image stockées dans le sidecar YAML
+// ImageEdits represents image modifications stored in the YAML sidecar
 type ImageEdits struct {
 	Crop     CropEdits `yaml:"Crop,omitempty" json:"crop,omitempty"`
 	Rotation int       `yaml:"Rotation,omitempty" json:"rotation,omitempty"`
@@ -19,7 +19,7 @@ type ImageEdits struct {
 	EditedBy string    `yaml:"EditedBy,omitempty" json:"editedBy,omitempty"`
 }
 
-// CropEdits représente un crop avec coordonnées relatives (0-1)
+// CropEdits represents a crop with relative coordinates (0-1)
 type CropEdits struct {
 	Left   float64 `yaml:"Left" json:"left"`
 	Top    float64 `yaml:"Top" json:"top"`
@@ -27,53 +27,53 @@ type CropEdits struct {
 	Height float64 `yaml:"Height" json:"height"`
 }
 
-// FlipEdits représente les flip horizontal et vertical
+// FlipEdits represents horizontal and vertical flip
 type FlipEdits struct {
 	Horizontal bool `yaml:"Horizontal" json:"horizontal"`
 	Vertical   bool `yaml:"Vertical" json:"vertical"`
 }
 
-// IsCropped retourne true si un crop a été appliqué
+// IsCropped returns true if a crop has been applied
 func (c *CropEdits) IsCropped() bool {
 	return c.Left != 0 || c.Top != 0 || c.Width != 1 || c.Height != 1
 }
 
-// IsFlipped retourne true si un flip a été appliqué
+// IsFlipped returns true if a flip has been applied
 func (f *FlipEdits) IsFlipped() bool {
 	return f.Horizontal || f.Vertical
 }
 
-// HasEdits retourne true si des modifications ont été appliquées
+// HasEdits returns true if modifications have been applied
 func (e *ImageEdits) HasEdits() bool {
 	return e.Crop.IsCropped() || e.Rotation != 0 || e.Flip.IsFlipped()
 }
 
-// SaveImageEditsToSidecar ajoute les modifications d'image au fichier sidecar YAML existant
+// SaveImageEditsToSidecar adds image modifications to the existing YAML sidecar file
 func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
-	// Lire le contenu YAML existant
+	// Read existing YAML content
 	var existingData map[string]interface{}
 
-	// Vérifier si le fichier existe
+	// Check if file exists
 	if _, err := os.Stat(yamlPath); err == nil {
-		// Le fichier existe, le lire
+		// File exists, read it
 		data, err := os.ReadFile(yamlPath)
 		if err != nil {
 			return fmt.Errorf("failed to read sidecar file: %w", err)
 		}
 
-		// Parser le YAML existant
+		// Parse existing YAML
 		if err := yaml.Unmarshal(data, &existingData); err != nil {
 			return fmt.Errorf("failed to parse existing YAML: %w", err)
 		}
 	} else {
-		// Le fichier n'existe pas, créer une nouvelle map
+		// File doesn't exist, create new map
 		existingData = make(map[string]interface{})
 	}
 
-	// Créer la structure ImageEdits
+	// Create ImageEdits structure
 	imageEditsMap := make(map[string]interface{})
 
-	// Ajouter le crop seulement s'il est appliqué
+	// Add crop only if applied
 	if edits.Crop.IsCropped() {
 		imageEditsMap["Crop"] = map[string]interface{}{
 			"Left":   edits.Crop.Left,
@@ -83,12 +83,12 @@ func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
 		}
 	}
 
-	// Ajouter la rotation seulement si différente de 0
+	// Add rotation only if different from 0
 	if edits.Rotation != 0 {
 		imageEditsMap["Rotation"] = edits.Rotation
 	}
 
-	// Ajouter le flip seulement s'il est appliqué
+	// Add flip only if applied
 	if edits.Flip.IsFlipped() {
 		imageEditsMap["Flip"] = map[string]interface{}{
 			"Horizontal": edits.Flip.Horizontal,
@@ -96,7 +96,7 @@ func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
 		}
 	}
 
-	// Ajouter les métadonnées
+	// Add metadata
 	if edits.EditedAt != "" {
 		imageEditsMap["EditedAt"] = edits.EditedAt
 	}
@@ -104,22 +104,22 @@ func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
 		imageEditsMap["EditedBy"] = edits.EditedBy
 	}
 
-	// Placer tout sous la clé "ImageEdits"
+	// Place everything under "ImageEdits" key
 	existingData["ImageEdits"] = imageEditsMap
 
-	// Sérialiser en YAML
+	// Serialize to YAML
 	yamlData, err := yaml.Marshal(existingData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal YAML: %w", err)
 	}
 
-	// Créer le répertoire si nécessaire
+	// Create directory if necessary
 	dir := filepath.Dir(yamlPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Écrire le fichier
+	// Write file
 	if err := os.WriteFile(yamlPath, yamlData, 0644); err != nil {
 		return fmt.Errorf("failed to write sidecar file: %w", err)
 	}
@@ -127,11 +127,11 @@ func SaveImageEditsToSidecar(yamlPath string, edits *ImageEdits) error {
 	return nil
 }
 
-// LoadImageEditsFromSidecar charge les modifications d'image depuis le fichier sidecar YAML
+// LoadImageEditsFromSidecar loads image modifications from the YAML sidecar file
 func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
-	// Vérifier si le fichier existe
+	// Check if file exists
 	if _, err := os.Stat(yamlPath); os.IsNotExist(err) {
-		// Pas de sidecar, retourner des éditions par défaut (pas de modifications)
+		// No sidecar, return default edits (no modifications)
 		return &ImageEdits{
 			Crop: CropEdits{
 				Left:   0,
@@ -147,19 +147,19 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 		}, nil
 	}
 
-	// Lire le fichier
+	// Read file
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sidecar file: %w", err)
 	}
 
-	// Parser le YAML dans une map générique
+	// Parse YAML into generic map
 	var yamlData map[string]interface{}
 	if err := yaml.Unmarshal(data, &yamlData); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	// Extraire les éditions
+	// Extract edits
 	edits := &ImageEdits{
 		Crop: CropEdits{
 			Left:   0,
@@ -174,14 +174,14 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 		},
 	}
 
-	// Chercher les données sous la clé "ImageEdits"
+	// Look for data under "ImageEdits" key
 	imageEditsData, hasImageEdits := yamlData["ImageEdits"].(map[interface{}]interface{})
 	if !hasImageEdits {
-		// Pas de données ImageEdits, retourner les valeurs par défaut
+		// No ImageEdits data, return default values
 		return edits, nil
 	}
 
-	// Extraire Crop
+	// Extract Crop
 	if cropData, ok := imageEditsData["Crop"].(map[interface{}]interface{}); ok {
 		if left, ok := cropData["Left"].(float64); ok {
 			edits.Crop.Left = left
@@ -197,12 +197,12 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 		}
 	}
 
-	// Extraire Rotation
+	// Extract Rotation
 	if rotation, ok := imageEditsData["Rotation"].(int); ok {
 		edits.Rotation = rotation
 	}
 
-	// Extraire Flip
+	// Extract Flip
 	if flipData, ok := imageEditsData["Flip"].(map[interface{}]interface{}); ok {
 		if h, ok := flipData["Horizontal"].(bool); ok {
 			edits.Flip.Horizontal = h
@@ -212,7 +212,7 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 		}
 	}
 
-	// Extraire métadonnées
+	// Extract metadata
 	if editedAt, ok := imageEditsData["EditedAt"].(string); ok {
 		edits.EditedAt = editedAt
 	}
@@ -223,35 +223,35 @@ func LoadImageEditsFromSidecar(yamlPath string) (*ImageEdits, error) {
 	return edits, nil
 }
 
-// DeleteImageEditsFromSidecar supprime les modifications d'image du fichier sidecar YAML
+// DeleteImageEditsFromSidecar deletes image modifications from the YAML sidecar file
 func DeleteImageEditsFromSidecar(yamlPath string) error {
-	// Vérifier si le fichier existe
+	// Check if file exists
 	if _, err := os.Stat(yamlPath); os.IsNotExist(err) {
-		// Pas de sidecar, rien à faire
+		// No sidecar, nothing to do
 		return nil
 	}
 
-	// Lire le fichier
+	// Read file
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return fmt.Errorf("failed to read sidecar file: %w", err)
 	}
 
-	// Parser le YAML
+	// Parse YAML
 	var yamlData map[string]interface{}
 	if err := yaml.Unmarshal(data, &yamlData); err != nil {
 		return fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	// Supprimer la section ImageEdits complète
+	// Delete complete ImageEdits section
 	delete(yamlData, "ImageEdits")
 
-	// Si le fichier est maintenant vide, le supprimer
+	// If file is now empty, delete it
 	if len(yamlData) == 0 {
 		return os.Remove(yamlPath)
 	}
 
-	// Sinon, réécrire le fichier sans les éditions
+	// Otherwise, rewrite file without edits
 	newYamlData, err := yaml.Marshal(yamlData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal YAML: %w", err)
@@ -264,25 +264,25 @@ func DeleteImageEditsFromSidecar(yamlPath string) error {
 	return nil
 }
 
-// ApplyImageEdits applique les transformations d'édition à une image
+// ApplyImageEdits applies edit transformations to an image
 func ApplyImageEdits(img image.Image, edits *ImageEdits) image.Image {
 	if edits == nil {
 		return img
 	}
 
-	// 1. Appliquer le crop en premier (coordonnées relatives 0-1)
+	// 1. Apply crop first (relative coordinates 0-1)
 	if edits.Crop.IsCropped() {
 		bounds := img.Bounds()
 		width := bounds.Dx()
 		height := bounds.Dy()
 
-		// Convertir les coordonnées relatives en pixels
+		// Convert relative coordinates to pixels
 		x0 := int(edits.Crop.Left * float64(width))
 		y0 := int(edits.Crop.Top * float64(height))
 		x1 := int((edits.Crop.Left + edits.Crop.Width) * float64(width))
 		y1 := int((edits.Crop.Top + edits.Crop.Height) * float64(height))
 
-		// S'assurer que les coordonnées sont dans les limites
+		// Ensure coordinates are within bounds
 		if x0 < 0 {
 			x0 = 0
 		}
@@ -296,14 +296,14 @@ func ApplyImageEdits(img image.Image, edits *ImageEdits) image.Image {
 			y1 = height
 		}
 
-		// Appliquer le crop
+		// Apply crop
 		cropRect := image.Rect(x0, y0, x1, y1)
 		img = imaging.Crop(img, cropRect)
 	}
 
-	// 2. Appliquer la rotation (en degrés, sens horaire)
+	// 2. Apply rotation (in degrees, clockwise)
 	if edits.Rotation != 0 {
-		// Normaliser la rotation entre 0 et 360
+		// Normalize rotation between 0 and 360
 		rotation := edits.Rotation % 360
 		if rotation < 0 {
 			rotation += 360
@@ -317,12 +317,12 @@ func ApplyImageEdits(img image.Image, edits *ImageEdits) image.Image {
 		case 270:
 			img = imaging.Rotate270(img)
 		default:
-			// Pour les rotations arbitraires, utiliser Rotate avec interpolation
+			// For arbitrary rotations, use Rotate with interpolation
 			img = imaging.Rotate(img, float64(-rotation), image.Black)
 		}
 	}
 
-	// 3. Appliquer les flips (après rotation)
+	// 3. Apply flips (after rotation)
 	if edits.Flip.Horizontal {
 		img = imaging.FlipH(img)
 	}

@@ -28,7 +28,6 @@
             </template>
           </v-list-item>
         </template>
-        <v-list-item title="action.text"></v-list-item>
       </v-list>
     </v-menu>
   </div>
